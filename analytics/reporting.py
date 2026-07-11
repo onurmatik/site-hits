@@ -1,0 +1,207 @@
+from dataclasses import dataclass
+from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
+
+from django.conf import settings
+from django.db.models import Case, CharField, Count, Max, Min, Q, Value, When
+from django.db.models.functions import Cast, Concat, TruncDay, TruncHour
+from django.utils import timezone
+
+from websites.models import TrackedSite
+
+from .models import AnalyticsEvent
+
+
+VALID_PERIODS = {"today", "last24h", "last7d", "last30d", "last90d"}
+VALID_GRANULARITIES = {"auto", "hourly", "daily"}
+BREAKDOWN_CONFIG = {
+    "pages": ("path", Q(event_type="pageview"), False),
+    "referrers": ("referrer_domain", Q(event_type="pageview"), False),
+    "countries": ("country_name", Q(), True),
+    "devices": ("device", Q(), True),
+    "browsers": ("browser", Q(), True),
+    "os": ("operating_system", Q(), True),
+    "campaigns": ("utm_campaign", ~Q(utm_campaign=""), True),
+    "events": ("event_name", Q(event_type="custom") & ~Q(event_name=""), False),
+}
+
+
+def scoped_identifier(field):
+    return Concat(Cast("site_id", CharField()), Value(":"), field)
+
+
+@dataclass(frozen=True)
+class PeriodRange:
+    start: datetime
+    end: datetime
+    previous_start: datetime
+    previous_end: datetime
+    timezone: ZoneInfo
+
+
+def report_timezone(site):
+    return ZoneInfo(site.timezone if site else settings.TIME_ZONE)
+
+
+def resolve_period(period, site=None, now=None):
+    if period not in VALID_PERIODS:
+        raise ValueError("Unknown period.")
+    now = now or timezone.now()
+    tzinfo = report_timezone(site)
+    local_now = now.astimezone(tzinfo)
+    if period == "today":
+        start = datetime.combine(local_now.date(), time.min, tzinfo=tzinfo)
+    else:
+        durations = {
+            "last24h": timedelta(hours=24),
+            "last7d": timedelta(days=7),
+            "last30d": timedelta(days=30),
+            "last90d": timedelta(days=90),
+        }
+        start = local_now - durations[period]
+    end = local_now
+    duration = end - start
+    return PeriodRange(start, end, start - duration, start, tzinfo)
+
+
+def selected_site(site_slug):
+    if site_slug == "all":
+        return None
+    try:
+        return TrackedSite.objects.get(slug=site_slug, is_active=True)
+    except TrackedSite.DoesNotExist as exc:
+        raise ValueError("Unknown site.") from exc
+
+
+def event_queryset(site, start, end):
+    queryset = AnalyticsEvent.objects.filter(occurred_at__gte=start, occurred_at__lt=end)
+    return queryset.filter(site=site) if site else queryset.filter(site__is_active=True)
+
+
+def metric_values(queryset):
+    visitors = queryset.values("site_id", "visitor_hash").distinct().count()
+    pageviews = queryset.filter(event_type="pageview").count()
+    session_rows = list(
+        queryset.values("site_id", "session_id").annotate(
+            event_count=Count("id"),
+            pageview_count=Count("id", filter=Q(event_type="pageview")),
+            first_seen=Min("occurred_at"),
+            last_seen=Max("occurred_at"),
+        )
+    )
+    sessions = len(session_rows)
+    bounces = sum(
+        row["event_count"] == 1 and row["pageview_count"] == 1 for row in session_rows
+    )
+    durations = [
+        max(0, (row["last_seen"] - row["first_seen"]).total_seconds())
+        for row in session_rows
+    ]
+    return {
+        "visitors": visitors,
+        "sessions": sessions,
+        "pageviews": pageviews,
+        "bounce_rate": round((bounces / sessions * 100) if sessions else 0, 1),
+        "avg_session_duration": round(sum(durations) / sessions) if sessions else 0,
+    }
+
+
+def delta(current, previous):
+    if previous == 0:
+        return 0 if current == 0 else None
+    return round((current - previous) / previous * 100, 1)
+
+
+def overview(site_slug, period):
+    site = selected_site(site_slug)
+    ranges = resolve_period(period, site)
+    current = metric_values(event_queryset(site, ranges.start, ranges.end))
+    previous = metric_values(
+        event_queryset(site, ranges.previous_start, ranges.previous_end)
+    )
+    return {
+        "site": site_slug,
+        "period": period,
+        "timezone": str(ranges.timezone),
+        "current": current,
+        "previous": previous,
+        "deltas": {key: delta(current[key], previous[key]) for key in current},
+    }
+
+
+def timeseries(site_slug, period, granularity):
+    if granularity not in VALID_GRANULARITIES:
+        raise ValueError("Unknown granularity.")
+    site = selected_site(site_slug)
+    ranges = resolve_period(period, site)
+    resolved = granularity
+    if granularity == "auto":
+        resolved = "hourly" if period in {"today", "last24h"} else "daily"
+    trunc = TruncHour("occurred_at", tzinfo=ranges.timezone) if resolved == "hourly" else TruncDay(
+        "occurred_at", tzinfo=ranges.timezone
+    )
+    rows = (
+        event_queryset(site, ranges.start, ranges.end)
+        .annotate(bucket=trunc)
+        .values("bucket")
+        .annotate(
+            visitors=Count(scoped_identifier("visitor_hash"), distinct=True),
+            sessions=Count(scoped_identifier("session_id"), distinct=True),
+            pageviews=Count("id", filter=Q(event_type="pageview")),
+        )
+        .order_by("bucket")
+    )
+    return {
+        "site": site_slug,
+        "period": period,
+        "granularity": resolved,
+        "timezone": str(ranges.timezone),
+        "data": [
+            {
+                "bucket": row["bucket"].isoformat(),
+                "visitors": row["visitors"],
+                "sessions": row["sessions"],
+                "pageviews": row["pageviews"],
+            }
+            for row in rows
+        ],
+    }
+
+
+def breakdown(site_slug, period, dimension, limit=8):
+    if dimension not in BREAKDOWN_CONFIG:
+        raise ValueError("Unknown breakdown dimension.")
+    site = selected_site(site_slug)
+    ranges = resolve_period(period, site)
+    field, filters, distinct_sessions = BREAKDOWN_CONFIG[dimension]
+    label = Case(
+        When(**{field: ""}, then=Value("Direct" if dimension == "referrers" else "Unknown")),
+        default=field,
+        output_field=CharField(),
+    )
+    queryset = event_queryset(site, ranges.start, ranges.end).filter(filters)
+    counter = (
+        Count(scoped_identifier("session_id"), distinct=True)
+        if distinct_sessions
+        else Count("id")
+    )
+    rows = list(
+        queryset.annotate(label=label)
+        .values("label")
+        .annotate(count=counter)
+        .order_by("-count", "label")[: max(1, min(limit, 50))]
+    )
+    total = sum(row["count"] for row in rows)
+    return {
+        "site": site_slug,
+        "period": period,
+        "dimension": dimension,
+        "data": [
+            {
+                "label": row["label"] or "Unknown",
+                "count": row["count"],
+                "percentage": round(row["count"] / total * 100, 1) if total else 0,
+            }
+            for row in rows
+        ],
+    }

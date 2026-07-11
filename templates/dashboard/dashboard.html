@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{% if selected_site %}{{ selected_site.name }}{% else %}All sites{% endif %} · SiteHits{% endblock %}
+
+{% block head %}
+<meta name="robots" content="noindex,nofollow">
+{% endblock %}
+
+{% block body %}
+<div id="dashboard-app" class="min-h-screen"
+     data-site="{{ site_slug }}" data-period="{{ period }}" data-granularity="{{ granularity }}">
+  <header class="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-ink/15 bg-white px-4 md:px-6">
+    <div class="flex min-w-0 items-center gap-3 md:gap-4">
+      <a href="{% url 'dashboard-all' %}" class="flex shrink-0 items-center gap-3" aria-label="SiteHits all sites dashboard">
+        <span class="grid size-8 place-items-center rounded-[2px] bg-forest" aria-hidden="true">
+          <span class="size-4 border border-white/50"></span>
+        </span>
+        <span class="hidden text-lg font-bold tracking-tight sm:inline">SiteHits</span>
+      </a>
+      <span class="hidden h-6 w-px bg-ink/10 md:block"></span>
+      <label class="sr-only" for="site-selector">Tracked site</label>
+      <select id="site-selector" class="max-w-48 cursor-pointer bg-transparent text-sm font-medium outline-none md:max-w-72">
+        <option value="{% url 'dashboard-all' %}" {% if site_slug == 'all' %}selected{% endif %}>All sites</option>
+        {% for site in sites %}
+          <option value="{% url 'dashboard-site' site.slug %}" {% if selected_site.pk == site.pk %}selected{% endif %}>{{ site.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="flex shrink-0 items-center gap-4 md:gap-6">
+      <span class="hidden items-center gap-2 sm:flex">
+        <span class="size-2 rounded-full bg-success"></span>
+        <span class="sh-mono text-[10px] text-muted">Operational</span>
+      </span>
+      <form action="{% url 'logout' %}" method="post">
+        {% csrf_token %}
+        <button class="min-h-10 text-sm text-muted transition-colors hover:text-ink">Logout</button>
+      </form>
+    </div>
+  </header>
+
+  <main class="mx-auto w-full max-w-[1440px] space-y-6 p-4 md:space-y-8 md:p-8">
+    <section class="flex flex-col justify-between gap-5 md:flex-row md:items-end">
+      <div>
+        <p class="sh-mono mb-2 text-muted">Privacy-first traffic intelligence</p>
+        <h1 class="text-[28px] font-semibold leading-[34px] tracking-tight">
+          {% if selected_site %}{{ selected_site.name }}{% else %}All sites{% endif %}
+        </h1>
+        <p class="mt-1 text-sm text-muted">
+          {% if selected_site %}{{ selected_site.allowed_domains|join:", " }}{% else %}Aggregate across active properties; visitors are not deduplicated between sites.{% endif %}
+        </p>
+      </div>
+      <nav class="flex max-w-full overflow-x-auto rounded-[2px] border border-ink/15 bg-white" aria-label="Reporting period">
+        <a class="sh-period {% if period == 'today' %}sh-period-active{% endif %}" href="?period=today&granularity=hourly">Today</a>
+        <a class="sh-period {% if period == 'last24h' %}sh-period-active{% endif %}" href="?period=last24h&granularity=hourly">24H</a>
+        <a class="sh-period {% if period == 'last7d' %}sh-period-active{% endif %}" href="?period=last7d&granularity=daily">7D</a>
+        <a class="sh-period {% if period == 'last30d' %}sh-period-active{% endif %}" href="?period=last30d&granularity=daily">30D</a>
+        <a class="sh-period {% if period == 'last90d' %}sh-period-active{% endif %}" href="?period=last90d&granularity=daily">90D</a>
+      </nav>
+    </section>
+
+    <div id="dashboard-error" class="hidden border border-coral bg-coral/10 p-4 text-sm text-danger" role="alert"></div>
+
+    <section class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5" aria-label="Key metrics">
+      <article class="sh-panel relative overflow-hidden p-5" data-kpi="visitors">
+        <span class="absolute inset-x-0 top-0 h-0.5 bg-forest"></span>
+        <p class="sh-mono mb-3 text-muted">Visitors</p><div class="flex items-baseline justify-between gap-3"><strong data-value class="sh-tabular text-3xl font-semibold">—</strong><span data-delta class="text-xs text-muted">—</span></div>
+      </article>
+      <article class="sh-panel p-5" data-kpi="sessions">
+        <p class="sh-mono mb-3 text-muted">Sessions</p><div class="flex items-baseline justify-between gap-3"><strong data-value class="sh-tabular text-3xl font-semibold">—</strong><span data-delta class="text-xs text-muted">—</span></div>
+      </article>
+      <article class="sh-panel p-5" data-kpi="pageviews">
+        <p class="sh-mono mb-3 text-muted">Pageviews</p><div class="flex items-baseline justify-between gap-3"><strong data-value class="sh-tabular text-3xl font-semibold">—</strong><span data-delta class="text-xs text-muted">—</span></div>
+      </article>
+      <article class="sh-panel p-5" data-kpi="bounce_rate">
+        <p class="sh-mono mb-3 text-muted">Bounce rate</p><div class="flex items-baseline justify-between gap-3"><strong data-value class="sh-tabular text-3xl font-semibold">—</strong><span data-delta class="text-xs text-muted">—</span></div>
+      </article>
+      <article class="sh-panel p-5" data-kpi="avg_session_duration">
+        <p class="sh-mono mb-3 text-muted">Avg. session</p><div class="flex items-baseline justify-between gap-3"><strong data-value class="sh-tabular text-3xl font-semibold">—</strong><span data-delta class="text-xs text-muted">—</span></div>
+      </article>
+    </section>
+
+    <section class="sh-panel p-4 md:p-6" aria-labelledby="traffic-chart-title">
+      <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div><h2 id="traffic-chart-title" class="sh-mono text-ink">Traffic volume</h2><p id="chart-timezone" class="mt-1 text-xs text-muted"></p></div>
+        <div class="flex items-center gap-5 text-xs"><span class="flex items-center gap-2"><i class="size-3 bg-forest"></i>Visitors</span><span class="flex items-center gap-2"><i class="size-3 bg-coral"></i>Pageviews</span></div>
+      </div>
+      <div class="relative h-[300px]"><canvas id="traffic-chart"></canvas></div>
+    </section>
+
+    <section class="grid grid-cols-1 gap-6 lg:grid-cols-2" aria-label="Traffic breakdowns">
+      {% for dimension, title, value_label in breakdowns %}
+      <article class="sh-panel" data-breakdown="{{ dimension }}">
+        <header class="flex items-center justify-between border-b border-ink/15 px-5 py-4">
+          <h2 class="sh-mono font-semibold text-ink">{{ title }}</h2><span class="sh-mono text-[10px] text-muted">{{ value_label }}</span>
+        </header>
+        <div data-rows class="min-h-36 p-2"><div class="space-y-2 p-3"><div class="sh-skeleton h-8"></div><div class="sh-skeleton h-8 w-4/5"></div><div class="sh-skeleton h-8 w-3/5"></div></div></div>
+      </article>
+      {% endfor %}
+    </section>
+  </main>
+
+  <footer class="mx-auto flex w-full max-w-[1440px] flex-col justify-between gap-3 px-4 py-10 text-xs text-muted sm:flex-row md:px-8">
+    <span class="sh-mono">SiteHits MVP</span>
+    <span class="flex gap-5"><a class="sh-mono hover:text-ink" href="{% url 'admin:index' %}">Django admin</a><a class="sh-mono hover:text-ink" href="/api/docs">API docs</a></span>
+  </footer>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'vendor/chart.umd.js' %}"></script>
+<script src="{% static 'dashboard/dashboard.js' %}"></script>
+{% endblock %}

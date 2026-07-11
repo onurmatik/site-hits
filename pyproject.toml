@@ -1,0 +1,32 @@
+[project]
+name = "sitehits"
+version = "0.1.0"
+description = "Privacy-conscious multi-site web analytics for internal use"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "Django>=5.2,<5.3",
+  "django-ninja>=1.4,<2",
+  "dj-database-url>=2.3,<4",
+  "geoip2>=5,<6",
+  "gunicorn>=23,<24",
+  "psycopg[binary]>=3.2,<4",
+  "user-agents>=2.2,<3",
+  "whitenoise>=6.9,<7",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3,<9",
+  "pytest-django>=4.11,<5",
+]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+python_files = ["test_*.py"]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

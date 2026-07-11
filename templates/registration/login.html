@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Sign in · SiteHits{% endblock %}
+
+{% block body %}
+<main class="grid min-h-screen place-items-center p-4">
+  <section class="sh-panel w-full max-w-md p-8" aria-labelledby="login-title">
+    <div class="mb-8 flex items-center gap-3">
+      <span class="grid size-9 place-items-center rounded-[2px] bg-forest" aria-hidden="true">
+        <span class="size-4 border border-white/50"></span>
+      </span>
+      <span class="text-xl font-bold tracking-tight">SiteHits</span>
+    </div>
+    <p class="sh-mono mb-2 text-muted">Internal analytics</p>
+    <h1 id="login-title" class="mb-8 text-3xl font-semibold tracking-tight">Sign in</h1>
+
+    {% if form.errors %}
+      <div class="mb-5 border border-coral bg-coral/10 p-3 text-sm text-danger" role="alert">
+        Username or password is incorrect.
+      </div>
+    {% endif %}
+
+    <form method="post" class="space-y-5">
+      {% csrf_token %}
+      <div>
+        <label for="id_username" class="sh-mono mb-2 block text-muted">Username</label>
+        <input id="id_username" name="username" autocomplete="username" required autofocus
+               class="min-h-11 w-full rounded-[2px] border border-ink/20 bg-white px-3 outline-none focus:border-forest">
+      </div>
+      <div>
+        <label for="id_password" class="sh-mono mb-2 block text-muted">Password</label>
+        <input id="id_password" name="password" type="password" autocomplete="current-password" required
+               class="min-h-11 w-full rounded-[2px] border border-ink/20 bg-white px-3 outline-none focus:border-forest">
+      </div>
+      <button class="min-h-11 w-full rounded-[2px] bg-forest px-4 font-medium text-white transition-colors hover:bg-ink">
+        Sign in
+      </button>
+      {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+    </form>
+  </section>
+</main>
+{% endblock %}

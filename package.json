@@ -1,0 +1,20 @@
+{
+  "name": "sitehits-assets",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm run build:css && npm run vendor",
+    "build:css": "tailwindcss -i assets/tailwind.css -o static/css/sitehits.css --minify",
+    "vendor": "node scripts/vendor-assets.mjs",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.11",
+    "jsdom": "^26.1.0",
+    "tailwindcss": "^4.1.11",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "chart.js": "^4.5.0"
+  }
+}

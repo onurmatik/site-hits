@@ -1,0 +1,14 @@
+.DS_Store
+.env
+.venv/
+__pycache__/
+*.py[cod]
+*.sqlite3
+.pytest_cache/
+.coverage
+htmlcov/
+node_modules/
+staticfiles/
+static/css/sitehits.css
+static/vendor/chart.umd.js*
+GeoLite2-Country.mmdb

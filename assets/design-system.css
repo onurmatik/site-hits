@@ -1,0 +1,36 @@
+:root {
+  --sh-paper: #f7f7f5;
+  --sh-panel: #ffffff;
+  --sh-ink: #17211b;
+  --sh-muted: #667069;
+  --sh-forest: #1a3c2b;
+  --sh-forest-soft: #dce7df;
+  --sh-coral: #e78468;
+  --sh-gold: #d6ae45;
+  --sh-success: #287a4b;
+  --sh-danger: #a94736;
+  --sh-hairline: rgba(23, 33, 27, 0.14);
+  --sh-radius: 2px;
+  --sh-font-sans: "Space Grotesk", Inter, ui-sans-serif, system-ui, sans-serif;
+  --sh-font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+html {
+  background: var(--sh-paper);
+  color: var(--sh-ink);
+  font-family: var(--sh-font-sans);
+}
+
+*:focus-visible {
+  outline: 2px solid var(--sh-coral);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

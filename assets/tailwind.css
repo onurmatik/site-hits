@@ -1,0 +1,34 @@
+@import "tailwindcss";
+@import "./design-system.css";
+
+@source "../templates";
+@source "../dashboard";
+
+@theme {
+  --color-paper: #f7f7f5;
+  --color-panel: #ffffff;
+  --color-ink: #17211b;
+  --color-muted: #667069;
+  --color-forest: #1a3c2b;
+  --color-forest-soft: #dce7df;
+  --color-coral: #e78468;
+  --color-gold: #d6ae45;
+  --color-success: #287a4b;
+  --color-danger: #a94736;
+}
+
+@layer base {
+  body { @apply m-0 min-h-screen bg-paper text-ink antialiased; }
+  button, select, input { font: inherit; }
+}
+
+@layer components {
+  .sh-panel { @apply rounded-[2px] border border-ink/15 bg-panel; }
+  .sh-mono { @apply font-mono text-[11px] tracking-[0.08em] uppercase; }
+  .sh-tabular { font-variant-numeric: tabular-nums; }
+  .sh-data-bar { @apply h-1 rounded-full bg-forest/15; }
+  .sh-data-bar > span { @apply block h-full rounded-full bg-forest; }
+  .sh-period { @apply min-h-10 border-r border-ink/10 px-4 py-2 font-mono text-[11px] tracking-[0.08em] uppercase transition-colors last:border-r-0 hover:bg-paper; }
+  .sh-period-active { @apply bg-forest text-white hover:bg-forest; }
+  .sh-skeleton { @apply animate-pulse bg-forest/10; }
+}
