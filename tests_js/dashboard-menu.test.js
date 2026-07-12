@@ -19,10 +19,25 @@ function installDashboard() {
         <div id="site-menu-options" hidden>
           <a href="/dashboard/all">All sites</a>
           <a href="/dashboard/example">Example</a>
-          <a href="/?start=over">New site</a>
+          <button id="new-site-trigger" type="button">New site</button>
         </div>
       </div>
+      <dialog id="new-site-dialog">
+        <button id="new-site-close" type="button">Close</button>
+        <form id="new-site-form">
+          <input id="new-site-domain">
+          <button type="submit"><span data-new-site-submit-label>Add website</span></button>
+        </form>
+      </dialog>
     </div>`;
+  const dialog = document.getElementById("new-site-dialog");
+  dialog.showModal = function () {
+    this.setAttribute("open", "");
+  };
+  dialog.close = function () {
+    this.removeAttribute("open");
+    this.dispatchEvent(new Event("close"));
+  };
   global.fetch = vi.fn(() => new Promise(() => {}));
   window.eval(source);
 }
@@ -62,6 +77,26 @@ describe("dashboard site menu", () => {
     options.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
 
     expect(options.hidden).toBe(true);
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  test("opens and closes the new site dialog from the site menu", () => {
+    const trigger = document.getElementById("site-menu-trigger");
+    const options = document.getElementById("site-menu-options");
+    const newSite = document.getElementById("new-site-trigger");
+    const dialog = document.getElementById("new-site-dialog");
+
+    trigger.click();
+    newSite.click();
+
+    expect(dialog.open).toBe(true);
+    expect(options.hidden).toBe(true);
+
+    document.getElementById("new-site-domain").dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+
+    expect(dialog.open).toBe(false);
     expect(document.activeElement).toBe(trigger);
   });
 });

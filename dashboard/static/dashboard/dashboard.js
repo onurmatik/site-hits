@@ -15,7 +15,7 @@
   var siteMenuChevron = siteMenu.querySelector("[data-site-menu-chevron]");
 
   function siteMenuLinks() {
-    return Array.from(siteMenuOptions.querySelectorAll("a"));
+    return Array.from(siteMenuOptions.querySelectorAll("a, button"));
   }
 
   function setSiteMenuOpen(open, returnFocus) {
@@ -60,8 +60,51 @@
   });
 
   document.addEventListener("keydown", function (event) {
-    if (event.key === "Escape" && !siteMenuOptions.hidden) setSiteMenuOpen(false, true);
+    if (event.key !== "Escape") return;
+    if (newSiteDialog && newSiteDialog.open) {
+      event.preventDefault();
+      newSiteDialog.close();
+      return;
+    }
+    if (!siteMenuOptions.hidden) setSiteMenuOpen(false, true);
   });
+
+  var newSiteTrigger = document.getElementById("new-site-trigger");
+  var newSiteDialog = document.getElementById("new-site-dialog");
+  var newSiteClose = document.getElementById("new-site-close");
+  var newSiteForm = document.getElementById("new-site-form");
+  var newSiteDomain = document.getElementById("new-site-domain");
+
+  if (newSiteTrigger && newSiteDialog) {
+    function openNewSiteDialog() {
+      setSiteMenuOpen(false);
+      newSiteDialog.showModal();
+      window.requestAnimationFrame(function () { newSiteDomain.focus(); });
+    }
+
+    newSiteTrigger.addEventListener("click", openNewSiteDialog);
+    newSiteClose.addEventListener("click", function () { newSiteDialog.close(); });
+
+    newSiteDialog.addEventListener("click", function (event) {
+      if (event.target !== newSiteDialog) return;
+      var bounds = newSiteDialog.getBoundingClientRect();
+      var inside = event.clientX >= bounds.left && event.clientX <= bounds.right
+        && event.clientY >= bounds.top && event.clientY <= bounds.bottom;
+      if (!inside) newSiteDialog.close();
+    });
+
+    newSiteDialog.addEventListener("close", function () {
+      if (document.contains(siteMenuTrigger)) siteMenuTrigger.focus();
+    });
+
+    newSiteForm.addEventListener("submit", function () {
+      var submit = newSiteForm.querySelector('button[type="submit"]');
+      submit.disabled = true;
+      submit.querySelector("[data-new-site-submit-label]").textContent = "Adding website…";
+    });
+
+    if (newSiteDialog.hasAttribute("data-open-on-load")) openNewSiteDialog();
+  }
 
   function api(path, extra) {
     var params = new URLSearchParams({ site: site, period: period });

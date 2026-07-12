@@ -206,3 +206,47 @@ def test_superuser_can_start_over_with_a_different_website(client, superuser):
     assert response.status_code == 200
     assert b"Dashboard" in response.content
     assert "sitehits_onboarding_website" not in client.session
+
+
+@pytest.mark.django_db
+def test_signed_in_dashboard_modal_adds_site_without_public_start_page(client, superuser):
+    client.force_login(superuser)
+
+    response = client.post(
+        reverse("start-onboarding"),
+        {
+            "flow": "dashboard-new-site",
+            "website": "new-dashboard-site.example",
+            "return_to": reverse("dashboard-all"),
+        },
+    )
+
+    site = TrackedSite.objects.get()
+    assert response.status_code == 302
+    assert response.url == reverse("onboarding-install", args=[site.slug])
+    assert site.owner == superuser
+    assert site.allowed_domains == ["new-dashboard-site.example"]
+    assert "sitehits_onboarding_website" not in client.session
+
+
+@pytest.mark.django_db
+def test_signed_in_dashboard_modal_reopens_with_domain_error(client, superuser):
+    client.force_login(superuser)
+
+    response = client.post(
+        reverse("start-onboarding"),
+        {
+            "flow": "dashboard-new-site",
+            "website": "not a domain",
+            "return_to": f'{reverse("dashboard-all")}?period=last30d',
+        },
+        follow=True,
+    )
+
+    assert response.status_code == 200
+    assert response.redirect_chain == [(f'{reverse("dashboard-all")}?period=last30d', 302)]
+    assert b'id="new-site-dialog"' in response.content
+    assert b"data-open-on-load" in response.content
+    assert b"Enter a valid website address" in response.content
+    assert b'value="not a domain"' in response.content
+    assert TrackedSite.objects.count() == 0

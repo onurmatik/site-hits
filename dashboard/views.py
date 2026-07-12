@@ -1,4 +1,5 @@
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
@@ -8,12 +9,15 @@ from django.db import connection
 from django.http import HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.text import slugify
 
 from websites.models import TrackedSite
 
 
 ONBOARDING_SESSION_KEY = "sitehits_onboarding_website"
+NEW_SITE_FORM_SESSION_KEY = "sitehits_new_site_form"
 
 
 def _website_details(value):
@@ -70,6 +74,47 @@ def _tracking_snippet(site):
     )
 
 
+def _site_for_details(user, details):
+    candidate_sites = TrackedSite.objects.filter(is_active=True)
+    if not user.is_superuser:
+        candidate_sites = candidate_sites.filter(owner=user)
+    existing_site = next(
+        (
+            site
+            for site in candidate_sites
+            if details["hostname"] in site.allowed_domains
+        ),
+        None,
+    )
+    if existing_site:
+        return existing_site
+
+    site = TrackedSite(
+        owner=user,
+        name=details["name"],
+        slug=_unique_site_slug(details["name"]),
+        allowed_domains=[details["hostname"]],
+        timezone=settings.TIME_ZONE,
+    )
+    site.full_clean()
+    site.save()
+    return site
+
+
+def _dashboard_return_url(request):
+    candidate = request.POST.get("return_to", "")
+    if (
+        candidate.startswith("/dashboard/")
+        and url_has_allowed_host_and_scheme(
+            candidate,
+            allowed_hosts={request.get_host()},
+            require_https=request.is_secure(),
+        )
+    ):
+        return candidate
+    return reverse("dashboard-all")
+
+
 def home(request, *, website="", error="", status=200):
     starting_over = request.GET.get("start") == "over"
     if request.user.is_authenticated and not starting_over:
@@ -88,10 +133,25 @@ def start_onboarding(request):
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
     website = request.POST.get("website", "")
+    dashboard_add = (
+        request.user.is_authenticated
+        and request.POST.get("flow") == "dashboard-new-site"
+    )
     try:
         details = _website_details(website)
     except ValidationError as exc:
+        if dashboard_add:
+            request.session[NEW_SITE_FORM_SESSION_KEY] = {
+                "website": website,
+                "error": exc.messages[0],
+            }
+            return redirect(_dashboard_return_url(request))
         return home(request, website=website, error=exc.messages[0], status=400)
+
+    if dashboard_add:
+        site = _site_for_details(request.user, details)
+        request.session.pop(NEW_SITE_FORM_SESSION_KEY, None)
+        return redirect("onboarding-install", site_slug=site.slug)
 
     request.session[ONBOARDING_SESSION_KEY] = details
     if request.user.is_authenticated:
@@ -107,29 +167,7 @@ def onboarding(request):
         return redirect("home")
 
     if request.method == "POST":
-        candidate_sites = TrackedSite.objects.filter(is_active=True)
-        if not request.user.is_superuser:
-            candidate_sites = candidate_sites.filter(owner=request.user)
-        existing_site = next(
-            (
-                site
-                for site in candidate_sites
-                if details["hostname"] in site.allowed_domains
-            ),
-            None,
-        )
-        if existing_site:
-            site = existing_site
-        else:
-            site = TrackedSite(
-                owner=request.user,
-                name=details["name"],
-                slug=_unique_site_slug(details["name"]),
-                allowed_domains=[details["hostname"]],
-                timezone=settings.TIME_ZONE,
-            )
-            site.full_clean()
-            site.save()
+        site = _site_for_details(request.user, details)
         request.session.pop(ONBOARDING_SESSION_KEY, None)
         return redirect("onboarding-install", site_slug=site.slug)
 
@@ -170,6 +208,8 @@ def dashboard(request, site_slug):
     granularity = request.GET.get("granularity", "auto")
     if granularity not in {"auto", "hourly", "daily"}:
         granularity = "auto"
+    new_site_form = request.session.pop(NEW_SITE_FORM_SESSION_KEY, {})
+    report_now = timezone.localtime(timezone.now(), ZoneInfo(settings.TIME_ZONE))
     return render(
         request,
         "dashboard/dashboard.html",
@@ -179,6 +219,10 @@ def dashboard(request, site_slug):
             "site_slug": site_slug,
             "period": period,
             "granularity": granularity,
+            "new_site_website": new_site_form.get("website", ""),
+            "new_site_error": new_site_form.get("error", ""),
+            "report_timezone": settings.TIME_ZONE.replace("_", " ").replace("/", " / "),
+            "report_local_time": report_now.strftime("%I:%M %p").lstrip("0"),
             "breakdowns": [
                 ("pages", "Top pages", "Views"),
                 ("referrers", "Top referrers", "Views"),

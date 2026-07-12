@@ -139,5 +139,8 @@ def test_dashboard_uses_downward_site_menu_with_new_site_action(client, superuse
         in response.content
     )
     assert b'aria-current="page"' in response.content
-    assert f'{reverse("home")}?start=over'.encode() in response.content
+    assert b'id="new-site-trigger"' in response.content
+    assert b'id="new-site-dialog"' in response.content
+    assert f'action="{reverse("start-onboarding")}"'.encode() in response.content
+    assert b'name="flow" value="dashboard-new-site"' in response.content
     assert b"New site" in response.content

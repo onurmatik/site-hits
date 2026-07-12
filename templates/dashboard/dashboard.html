@@ -57,13 +57,13 @@
             </a>
           {% endfor %}
           <div class="my-1 border-t border-ink/10"></div>
-          <a href="{% url 'home' %}?start=over"
-             class="flex min-h-10 items-center gap-2 px-4 text-sm text-muted transition-colors hover:bg-paper hover:text-ink">
+          <button id="new-site-trigger" type="button"
+             class="flex min-h-10 w-full items-center gap-2 px-4 text-left text-sm text-muted transition-colors hover:bg-paper hover:text-ink">
             <svg class="size-4 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
             </svg>
             <span>New site</span>
-          </a>
+          </button>
         </div>
       </div>
     </div>
@@ -144,6 +144,52 @@
     <span class="sh-mono">SiteHits MVP</span>
     <span class="flex gap-5">{% if user.is_staff %}<a class="sh-mono hover:text-ink" href="{% url 'admin:index' %}">Django admin</a>{% endif %}<a class="sh-mono hover:text-ink" href="/api/docs">API docs</a></span>
   </footer>
+
+  <dialog id="new-site-dialog"
+          class="fixed inset-0 m-auto max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] max-w-xl overflow-y-auto border-0 bg-transparent p-0 text-ink backdrop:bg-ink/30"
+          aria-labelledby="new-site-title"{% if new_site_error %} data-open-on-load{% endif %}>
+    <section class="sh-panel w-full" aria-describedby="new-site-timezone-help">
+      <header class="flex items-center justify-between gap-4 border-b border-ink/15 px-5 py-4 sm:px-6">
+        <h2 id="new-site-title" class="text-lg font-semibold tracking-tight">Add a new website</h2>
+        <button id="new-site-close" type="button" class="sh-mono min-h-10 px-1 text-muted transition-colors hover:text-ink">Close</button>
+      </header>
+
+      <form id="new-site-form" action="{% url 'start-onboarding' %}" method="post" class="space-y-5 p-5 sm:p-6">
+        {% csrf_token %}
+        <input type="hidden" name="flow" value="dashboard-new-site">
+        <input type="hidden" name="return_to" value="{{ request.get_full_path }}">
+
+        <div>
+          <label for="new-site-domain" class="mb-2 block text-sm font-medium">Domain</label>
+          <div class="flex min-h-12 items-stretch rounded-[2px] border {% if new_site_error %}border-danger{% else %}border-ink/20{% endif %} bg-white focus-within:border-forest">
+            <span class="flex shrink-0 items-center gap-2 border-r border-ink/10 px-3 text-sm text-muted sm:px-4" aria-hidden="true">
+              <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+                <circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"></path>
+              </svg>
+              <span>https://</span>
+            </span>
+            <input id="new-site-domain" name="website" value="{{ new_site_website }}" inputmode="url" autocomplete="url" required
+                   class="min-w-0 flex-1 border-0 bg-transparent px-3 outline-none sm:px-4"
+                   placeholder="example.com"{% if new_site_error %} aria-invalid="true" aria-describedby="new-site-domain-error"{% endif %}>
+          </div>
+          {% if new_site_error %}<p id="new-site-domain-error" class="mt-2 text-sm text-danger" role="alert">{{ new_site_error }}</p>{% endif %}
+        </div>
+
+        <div>
+          <span class="mb-2 block text-sm font-medium">Timezone</span>
+          <div class="flex min-h-12 flex-col justify-center gap-1 rounded-[2px] border border-ink/15 bg-paper px-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+            <span class="font-medium">{{ report_timezone }}</span>
+            <span class="sh-tabular text-muted">where time is {{ report_local_time }}</span>
+          </div>
+          <p id="new-site-timezone-help" class="mt-2 text-sm leading-6 text-muted">This defines what “today” means in your reports.</p>
+        </div>
+
+        <button type="submit" class="min-h-12 w-full rounded-[2px] bg-forest px-5 font-medium text-white transition-colors hover:bg-ink disabled:cursor-not-allowed disabled:opacity-60">
+          <span data-new-site-submit-label>Add website</span>
+        </button>
+      </form>
+    </section>
+  </dialog>
 </div>
 {% endblock %}
 
