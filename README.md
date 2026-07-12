@@ -81,7 +81,7 @@ Copy `.env.example` and supply real secrets. Important details:
 
 ### Passwordless and Google authentication
 
-Anonymous onboarding uses a 10-minute `django-sesame` magic link. Configure a real Django email backend in production with `EMAIL_BACKEND`, `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS`, and `DEFAULT_FROM_EMAIL`. The defaults deliberately use Django's console backend for local development only.
+Anonymous onboarding uses a 10-minute `django-sesame` magic link. Local development uses Django's console backend; production defaults to `django_ses.SESBackend` and sends through the SES API. Configure `AWS_SES_ACCESS_KEY_ID`, `AWS_SES_SECRET_ACCESS_KEY`, and `AWS_SES_REGION_NAME` in the production environment, with the region matching the verified `sitehits.io` SES identity. `AWS_SES_REGION_ENDPOINT` is derived automatically and `AWS_SES_CONFIGURATION_SET` is optional. Mail is sent as `SiteHits <hello@sitehits.io>` unless `DEFAULT_FROM_EMAIL` overrides it.
 
 Google sign-up/sign-in uses `django-allauth`. Set `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET`, then add this exact authorized redirect URI to the Google OAuth web client:
 

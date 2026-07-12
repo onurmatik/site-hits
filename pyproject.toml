@@ -16,6 +16,7 @@ dependencies = [
   "python-dotenv>=1.1,<2",
   "django-sesame>=3.2,<4",
   "django-allauth[socialaccount]>=65,<66",
+  "django-ses>=4.7,<5",
 ]
 
 [dependency-groups]

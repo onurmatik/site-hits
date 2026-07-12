@@ -14,6 +14,12 @@ asgiref==3.11.1
     #   django-allauth
 attrs==26.1.0
     # via aiohttp
+boto3==1.43.46
+    # via django-ses
+botocore==1.43.46
+    # via
+    #   boto3
+    #   s3transfer
 certifi==2026.6.17
     # via requests
 cffi==2.1.0 ; platform_python_implementation != 'PyPy'
@@ -29,11 +35,14 @@ django==5.2.16
     #   dj-database-url
     #   django-allauth
     #   django-ninja
+    #   django-ses
     #   django-sesame
     #   sitehits
 django-allauth==65.18.0
     # via sitehits
 django-ninja==1.6.2
+    # via sitehits
+django-ses==4.7.2
     # via sitehits
 django-sesame==3.2.3
     # via sitehits
@@ -49,6 +58,10 @@ idna==3.18
     # via
     #   requests
     #   yarl
+jmespath==1.1.0
+    # via
+    #   boto3
+    #   botocore
 maxminddb==3.1.1
     # via geoip2
 multidict==6.7.1
@@ -75,12 +88,18 @@ pydantic-core==2.46.4
     # via pydantic
 pyjwt==2.13.0
     # via django-allauth
+python-dateutil==2.9.0.post0
+    # via botocore
 python-dotenv==1.2.2
     # via sitehits
 requests==2.34.2
     # via
     #   django-allauth
     #   geoip2
+s3transfer==0.19.1
+    # via boto3
+six==1.17.0
+    # via python-dateutil
 sqlparse==0.5.5
     # via django
 typing-extensions==4.16.0
@@ -102,7 +121,9 @@ ua-parser==1.0.2
 ua-parser-builtins==202606
     # via ua-parser
 urllib3==2.7.0
-    # via requests
+    # via
+    #   botocore
+    #   requests
 user-agents==2.2.0
     # via sitehits
 whitenoise==6.12.0

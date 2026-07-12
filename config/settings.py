@@ -2,11 +2,20 @@ from pathlib import Path
 import os
 
 import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
+
+
+def env_value(*names, default=""):
+    for name in names:
+        value = os.environ.get(name)
+        if value is not None:
+            return value
+    return default
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "unsafe-local-sitehits-secret")
 DEBUG = os.environ.get("DJANGO_DEBUG", "true").lower() in {"1", "true", "yes"}
@@ -142,8 +151,14 @@ SOCIALACCOUNT_PROVIDERS = {
     }
 }
 
-EMAIL_BACKEND = os.environ.get(
-    "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+EMAIL_BACKEND = env_value(
+    "DJANGO_EMAIL_BACKEND",
+    "EMAIL_BACKEND",
+    default=(
+        "django.core.mail.backends.console.EmailBackend"
+        if DEBUG
+        else "django_ses.SESBackend"
+    ),
 )
 EMAIL_HOST = os.environ.get("EMAIL_HOST", "localhost")
 EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "25"))
@@ -151,6 +166,32 @@ EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "false").lower() in {"1", "true", "yes"}
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "SiteHits <hello@sitehits.io>")
+
+AWS_SES_ACCESS_KEY_ID = os.environ.get("AWS_SES_ACCESS_KEY_ID", "")
+AWS_SES_SECRET_ACCESS_KEY = os.environ.get("AWS_SES_SECRET_ACCESS_KEY", "")
+AWS_SES_REGION_NAME = env_value("AWS_SES_REGION_NAME", "AWS_DEFAULT_REGION")
+AWS_SES_REGION_ENDPOINT = os.environ.get(
+    "AWS_SES_REGION_ENDPOINT",
+    f"email.{AWS_SES_REGION_NAME}.amazonaws.com" if AWS_SES_REGION_NAME else "",
+)
+AWS_SES_CONFIGURATION_SET = os.environ.get("AWS_SES_CONFIGURATION_SET", "") or None
+USE_SES_V2 = os.environ.get("USE_SES_V2", "true").lower() in {"1", "true", "yes"}
+
+if not DEBUG and EMAIL_BACKEND == "django_ses.SESBackend":
+    missing_ses_settings = [
+        name
+        for name, value in {
+            "AWS_SES_ACCESS_KEY_ID": AWS_SES_ACCESS_KEY_ID,
+            "AWS_SES_SECRET_ACCESS_KEY": AWS_SES_SECRET_ACCESS_KEY,
+            "AWS_SES_REGION_NAME": AWS_SES_REGION_NAME,
+        }.items()
+        if not value
+    ]
+    if missing_ses_settings:
+        raise ImproperlyConfigured(
+            "django_ses.SESBackend requires production SES settings: "
+            + ", ".join(missing_ses_settings)
+        )
 
 SITEHITS_BASE_URL = os.environ.get("SITEHITS_BASE_URL", "http://localhost:8000").rstrip("/")
 SITEHITS_HASH_SECRET = os.environ.get("SITEHITS_HASH_SECRET", SECRET_KEY)
