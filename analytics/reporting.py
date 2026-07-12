@@ -64,18 +64,23 @@ def resolve_period(period, site=None, now=None):
     return PeriodRange(start, end, start - duration, start, tzinfo)
 
 
-def selected_site(site_slug):
+def selected_site(site_slug, sites=None):
     if site_slug == "all":
         return None
+    queryset = sites if sites is not None else TrackedSite.objects.filter(is_active=True)
     try:
-        return TrackedSite.objects.get(slug=site_slug, is_active=True)
+        return queryset.get(slug=site_slug, is_active=True)
     except TrackedSite.DoesNotExist as exc:
         raise ValueError("Unknown site.") from exc
 
 
-def event_queryset(site, start, end):
+def event_queryset(site, start, end, sites=None):
     queryset = AnalyticsEvent.objects.filter(occurred_at__gte=start, occurred_at__lt=end)
-    return queryset.filter(site=site) if site else queryset.filter(site__is_active=True)
+    if site:
+        return queryset.filter(site=site)
+    if sites is not None:
+        return queryset.filter(site__in=sites)
+    return queryset.filter(site__is_active=True)
 
 
 def metric_values(queryset):
@@ -112,12 +117,12 @@ def delta(current, previous):
     return round((current - previous) / previous * 100, 1)
 
 
-def overview(site_slug, period):
-    site = selected_site(site_slug)
+def overview(site_slug, period, sites=None):
+    site = selected_site(site_slug, sites)
     ranges = resolve_period(period, site)
-    current = metric_values(event_queryset(site, ranges.start, ranges.end))
+    current = metric_values(event_queryset(site, ranges.start, ranges.end, sites))
     previous = metric_values(
-        event_queryset(site, ranges.previous_start, ranges.previous_end)
+        event_queryset(site, ranges.previous_start, ranges.previous_end, sites)
     )
     return {
         "site": site_slug,
@@ -129,10 +134,10 @@ def overview(site_slug, period):
     }
 
 
-def timeseries(site_slug, period, granularity):
+def timeseries(site_slug, period, granularity, sites=None):
     if granularity not in VALID_GRANULARITIES:
         raise ValueError("Unknown granularity.")
-    site = selected_site(site_slug)
+    site = selected_site(site_slug, sites)
     ranges = resolve_period(period, site)
     resolved = granularity
     if granularity == "auto":
@@ -141,7 +146,7 @@ def timeseries(site_slug, period, granularity):
         "occurred_at", tzinfo=ranges.timezone
     )
     rows = (
-        event_queryset(site, ranges.start, ranges.end)
+        event_queryset(site, ranges.start, ranges.end, sites)
         .annotate(bucket=trunc)
         .values("bucket")
         .annotate(
@@ -168,10 +173,10 @@ def timeseries(site_slug, period, granularity):
     }
 
 
-def breakdown(site_slug, period, dimension, limit=8):
+def breakdown(site_slug, period, dimension, limit=8, sites=None):
     if dimension not in BREAKDOWN_CONFIG:
         raise ValueError("Unknown breakdown dimension.")
-    site = selected_site(site_slug)
+    site = selected_site(site_slug, sites)
     ranges = resolve_period(period, site)
     field, filters, distinct_sessions = BREAKDOWN_CONFIG[dimension]
     label = Case(
@@ -179,7 +184,7 @@ def breakdown(site_slug, period, dimension, limit=8):
         default=field,
         output_field=CharField(),
     )
-    queryset = event_queryset(site, ranges.start, ranges.end).filter(filters)
+    queryset = event_queryset(site, ranges.start, ranges.end, sites).filter(filters)
     counter = (
         Count(scoped_identifier("session_id"), distinct=True)
         if distinct_sessions

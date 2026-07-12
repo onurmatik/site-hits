@@ -1,7 +1,7 @@
 from urllib.parse import urlsplit
 
 from django.conf import settings
-from django.contrib.auth.decorators import user_passes_test
+from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db import connection
@@ -72,7 +72,7 @@ def _tracking_snippet(site):
 
 def home(request, *, website="", error="", status=200):
     starting_over = request.GET.get("start") == "over"
-    if request.user.is_superuser and not starting_over:
+    if request.user.is_authenticated and not starting_over:
         return redirect("dashboard-all")
     if starting_over:
         request.session.pop(ONBOARDING_SESSION_KEY, None)
@@ -94,23 +94,26 @@ def start_onboarding(request):
         return home(request, website=website, error=exc.messages[0], status=400)
 
     request.session[ONBOARDING_SESSION_KEY] = details
-    if request.user.is_superuser:
+    if request.user.is_authenticated:
         return redirect("onboarding")
-    login_url = reverse("login")
-    return redirect(f"{login_url}?next={reverse('onboarding')}")
+    signup_url = reverse("signup")
+    return redirect(f"{signup_url}?next={reverse('onboarding')}")
 
 
-@user_passes_test(lambda user: user.is_superuser, login_url="login")
+@login_required
 def onboarding(request):
     details = request.session.get(ONBOARDING_SESSION_KEY)
     if not details:
         return redirect("home")
 
     if request.method == "POST":
+        candidate_sites = TrackedSite.objects.filter(is_active=True)
+        if not request.user.is_superuser:
+            candidate_sites = candidate_sites.filter(owner=request.user)
         existing_site = next(
             (
                 site
-                for site in TrackedSite.objects.filter(is_active=True)
+                for site in candidate_sites
                 if details["hostname"] in site.allowed_domains
             ),
             None,
@@ -119,6 +122,7 @@ def onboarding(request):
             site = existing_site
         else:
             site = TrackedSite(
+                owner=request.user,
                 name=details["name"],
                 slug=_unique_site_slug(details["name"]),
                 allowed_domains=[details["hostname"]],
@@ -132,9 +136,12 @@ def onboarding(request):
     return render(request, "onboarding/confirm.html", {"website": details})
 
 
-@user_passes_test(lambda user: user.is_superuser, login_url="login")
+@login_required
 def onboarding_install(request, site_slug):
-    site = get_object_or_404(TrackedSite, slug=site_slug)
+    sites = TrackedSite.objects.all()
+    if not request.user.is_superuser:
+        sites = sites.filter(owner=request.user)
+    site = get_object_or_404(sites, slug=site_slug)
     return render(
         request,
         "onboarding/install.html",
@@ -149,11 +156,14 @@ def health(request):
     return JsonResponse({"status": "ok"})
 
 
-@user_passes_test(lambda user: user.is_superuser, login_url="login")
+@login_required
 def dashboard(request, site_slug):
+    sites = TrackedSite.objects.filter(is_active=True)
+    if not request.user.is_superuser:
+        sites = sites.filter(owner=request.user)
     selected = None
     if site_slug != "all":
-        selected = get_object_or_404(TrackedSite, slug=site_slug, is_active=True)
+        selected = get_object_or_404(sites, slug=site_slug)
     period = request.GET.get("period", "last7d")
     if period not in {"today", "last24h", "last7d", "last30d", "last90d"}:
         period = "last7d"
@@ -164,7 +174,7 @@ def dashboard(request, site_slug):
         request,
         "dashboard/dashboard.html",
         {
-            "sites": TrackedSite.objects.filter(is_active=True),
+            "sites": sites,
             "selected_site": selected,
             "site_slug": site_slug,
             "period": period,

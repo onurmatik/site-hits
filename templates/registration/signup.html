@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{% if website %}Create your account{% else %}Sign in{% endif %} · SiteHits{% endblock %}
+
+{% block body %}
+<main class="grid min-h-screen place-items-center p-4">
+  <section class="sh-panel w-full max-w-md p-6 md:p-8" aria-labelledby="auth-title">
+    <div class="mb-8 flex items-center gap-3">
+      <img src="{% static 'sitehits-mark.svg' %}" width="36" height="36" alt="">
+      <span class="text-xl font-bold tracking-tight">SiteHits</span>
+    </div>
+
+    <div class="mb-8">
+      <p class="sh-mono mb-2 text-muted">{% if website %}Website added{% else %}Passwordless access{% endif %}</p>
+      <h1 id="auth-title" class="text-[30px] font-semibold leading-tight tracking-tight">
+        {% if website %}Create your SiteHits account{% else %}Sign in to SiteHits{% endif %}
+      </h1>
+      <p class="mt-3 leading-6 text-muted">
+        {% if website %}Start tracking <strong class="font-medium text-ink">{{ website.hostname }}</strong> with privacy-first analytics.{% else %}Continue with Google or request a secure email link.{% endif %}
+      </p>
+    </div>
+
+    {% if auth_error %}
+      <div class="mb-5 border border-coral bg-coral/10 p-3 text-sm text-danger" role="alert">{{ auth_error }}</div>
+    {% endif %}
+
+    {% if sent %}
+      <div class="border border-success/30 bg-forest-soft p-5" role="status" aria-live="polite">
+        <p class="font-medium">Check your inbox</p>
+        <p class="mt-2 text-sm leading-6 text-muted">We sent a 10-minute sign-in link to <strong class="font-medium text-ink">{{ email }}</strong>. Open it to continue setup.</p>
+      </div>
+      <a href="{% url 'signup' %}?next={{ next|urlencode }}" class="mt-5 block min-h-10 py-2 text-center text-sm text-muted transition-colors hover:text-ink">Use a different email</a>
+    {% else %}
+      <a href="{{ google_url }}" class="flex min-h-12 w-full items-center justify-center gap-3 rounded-[2px] border border-ink/20 bg-white px-4 font-medium transition-colors hover:border-forest">
+        <img src="{% static 'google-g.svg' %}" width="18" height="18" alt="">
+        <span>Continue with Google</span>
+      </a>
+
+      <div class="flex items-center gap-4 py-6" aria-hidden="true">
+        <span class="h-px flex-1 bg-ink/10"></span><span class="sh-mono text-muted">or</span><span class="h-px flex-1 bg-ink/10"></span>
+      </div>
+
+      <form method="post" class="space-y-5">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ next }}">
+        <div>
+          <label for="id_email" class="sh-mono mb-2 block text-muted">Email</label>
+          <input id="id_email" name="email" value="{{ email }}" type="email" autocomplete="email" required autofocus
+                 aria-describedby="email-help{% if email_error %} email-error{% endif %}"
+                 class="min-h-12 w-full rounded-[2px] border {% if email_error %}border-coral{% else %}border-ink/20{% endif %} bg-white px-3 outline-none focus:border-forest"
+                 placeholder="you@example.com">
+          {% if email_error %}<p id="email-error" class="mt-2 text-sm text-danger" role="alert">{{ email_error }}</p>{% endif %}
+        </div>
+        <button class="min-h-12 w-full rounded-[2px] bg-forest px-4 font-medium text-white transition-colors hover:bg-ink">Send magic link</button>
+      </form>
+      <p id="email-help" class="mt-4 text-center text-sm leading-6 text-muted">No password required. The email link signs you in and continues setup.</p>
+    {% endif %}
+
+    <div class="mt-8 border-t border-ink/5 pt-5">
+      <a href="{% url 'home' %}?start=over" class="block min-h-10 py-2 text-center text-sm text-muted transition-colors hover:text-ink">
+        {% if website %}Use a different website{% else %}Back to SiteHits{% endif %}
+      </a>
+    </div>
+  </section>
+</main>
+{% endblock %}

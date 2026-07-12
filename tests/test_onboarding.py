@@ -1,4 +1,8 @@
+from urllib.parse import urlsplit
+
 import pytest
+from django.contrib.auth import get_user_model
+from django.core import mail
 from django.urls import reverse
 
 from websites.models import TrackedSite
@@ -26,7 +30,7 @@ def test_superuser_home_redirects_to_dashboard(client, superuser):
 
 
 @pytest.mark.django_db
-def test_start_onboarding_validates_and_preserves_website_for_login(client):
+def test_start_onboarding_validates_and_preserves_website_for_signup(client):
     invalid = client.post(reverse("start-onboarding"), {"website": "not a domain"})
     assert invalid.status_code == 400
     assert b"Enter a valid website address" in invalid.content
@@ -37,7 +41,7 @@ def test_start_onboarding_validates_and_preserves_website_for_login(client):
     )
 
     assert response.status_code == 302
-    assert response.url == f"{reverse('login')}?next={reverse('onboarding')}"
+    assert response.url == f"{reverse('signup')}?next={reverse('onboarding')}"
     assert client.session["sitehits_onboarding_website"] == {
         "hostname": "www.my-product.example",
         "name": "My Product",
@@ -45,13 +49,13 @@ def test_start_onboarding_validates_and_preserves_website_for_login(client):
 
 
 @pytest.mark.django_db
-def test_onboarding_requires_superuser_and_creates_site(client, superuser, settings):
+def test_onboarding_requires_authentication_and_creates_owned_site(client, superuser, settings):
     settings.SITEHITS_BASE_URL = "https://stats.example"
     client.post(reverse("start-onboarding"), {"website": "my-product.example"})
 
     protected = client.get(reverse("onboarding"))
     assert protected.status_code == 302
-    assert reverse("login") in protected.url
+    assert reverse("signup") in protected.url
 
     client.force_login(superuser)
     confirm = client.get(reverse("onboarding"))
@@ -63,6 +67,7 @@ def test_onboarding_requires_superuser_and_creates_site(client, superuser, setti
     assert created.status_code == 302
     assert created.url == reverse("onboarding-install", args=[site.slug])
     assert site.name == "My Product"
+    assert site.owner == superuser
     assert site.allowed_domains == ["my-product.example"]
     assert "sitehits_onboarding_website" not in client.session
 
@@ -90,6 +95,79 @@ def test_login_keeps_anonymous_website_and_continues_onboarding(client, superuse
     assert response.url == reverse("onboarding")
     confirm = client.get(response.url)
     assert b"Ready to track kept.example" in confirm.content
+
+
+@pytest.mark.django_db
+def test_anonymous_onboarding_shows_signup_options(client):
+    client.post(reverse("start-onboarding"), {"website": "new-product.example"})
+
+    response = client.get(reverse("signup"), {"next": reverse("onboarding")})
+
+    assert response.status_code == 200
+    assert b"Create your SiteHits account" in response.content
+    assert b"new-product.example" in response.content
+    assert b"Continue with Google" in response.content
+    assert b"Send magic link" in response.content
+    assert b'name="password"' not in response.content
+
+
+@pytest.mark.django_db
+def test_magic_link_creates_user_and_continues_preserved_onboarding(client, settings):
+    settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+    client.post(reverse("start-onboarding"), {"website": "magic.example"})
+
+    sent = client.post(
+        reverse("signup"),
+        {"email": "owner@example.com", "next": reverse("onboarding")},
+    )
+
+    assert sent.status_code == 200
+    assert b"Check your inbox" in sent.content
+    assert len(mail.outbox) == 1
+    user = get_user_model().objects.get(email="owner@example.com")
+    assert not user.has_usable_password()
+    login_url = next(line for line in mail.outbox[0].body.splitlines() if "magic-link" in line)
+    parsed = urlsplit(login_url)
+
+    logged_in = client.get(f"{parsed.path}?{parsed.query}")
+
+    assert logged_in.status_code == 302
+    assert logged_in.url == reverse("onboarding")
+    confirm = client.get(logged_in.url)
+    assert b"Ready to track magic.example" in confirm.content
+
+
+@pytest.mark.django_db
+def test_google_signup_redirect_is_branded_when_unconfigured(client):
+    response = client.get(reverse("google-start"), {"next": reverse("onboarding")})
+
+    assert response.status_code == 302
+    follow = client.get(response.url)
+    assert follow.status_code == 200
+    assert b"Google sign-in is not configured yet" in follow.content
+
+
+@pytest.mark.django_db
+def test_google_signup_starts_oauth_and_preserves_next(client, settings):
+    settings.SITEHITS_GOOGLE_CLIENT_ID = "client-id"
+    settings.SITEHITS_GOOGLE_CLIENT_SECRET = "client-secret"
+    settings.SOCIALACCOUNT_PROVIDERS = {
+        "google": {
+            "APPS": [{"client_id": "client-id", "secret": "client-secret", "key": ""}],
+            "SCOPE": ["profile", "email"],
+            "AUTH_PARAMS": {"access_type": "online"},
+            "OAUTH_PKCE_ENABLED": True,
+        }
+    }
+
+    response = client.get(reverse("google-start"), {"next": reverse("onboarding")})
+
+    assert response.status_code == 302
+    assert response.url.startswith(reverse("google_login"))
+    assert "next=%2Fonboarding%2F" in response.url
+    oauth = client.get(response.url)
+    assert oauth.status_code == 302
+    assert oauth.url.startswith("https://accounts.google.com/")
 
 
 @pytest.mark.django_db

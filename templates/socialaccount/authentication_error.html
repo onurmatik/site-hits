@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block title %}Google sign-in failed · SiteHits{% endblock %}
+
+{% block body %}
+<main class="grid min-h-screen place-items-center p-4">
+  <section class="sh-panel w-full max-w-md p-8" aria-labelledby="auth-error-title">
+    <p class="sh-mono mb-2 text-danger">Authentication error</p>
+    <h1 id="auth-error-title" class="text-3xl font-semibold tracking-tight">Google sign-in failed</h1>
+    <p class="mt-4 leading-6 text-muted">We could not complete Google sign-in. You can try again or continue with an email magic link.</p>
+    <a href="{% url 'signup' %}" class="mt-8 grid min-h-12 place-items-center rounded-[2px] bg-forest px-4 font-medium text-white hover:bg-ink">Back to sign in</a>
+  </section>
+</main>
+{% endblock %}

@@ -102,7 +102,7 @@
 
   <footer class="mx-auto flex w-full max-w-[1440px] flex-col justify-between gap-3 px-4 py-10 text-xs text-muted sm:flex-row md:px-8">
     <span class="sh-mono">SiteHits MVP</span>
-    <span class="flex gap-5"><a class="sh-mono hover:text-ink" href="{% url 'admin:index' %}">Django admin</a><a class="sh-mono hover:text-ink" href="/api/docs">API docs</a></span>
+    <span class="flex gap-5">{% if user.is_staff %}<a class="sh-mono hover:text-ink" href="{% url 'admin:index' %}">Django admin</a>{% endif %}<a class="sh-mono hover:text-ink" href="/api/docs">API docs</a></span>
   </footer>
 </div>
 {% endblock %}

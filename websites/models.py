@@ -1,6 +1,7 @@
 import secrets
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 
@@ -10,6 +11,13 @@ def generate_public_key():
 
 
 class TrackedSite(models.Model):
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="tracked_sites",
+        null=True,
+        blank=True,
+    )
     name = models.CharField(max_length=120)
     slug = models.SlugField(max_length=80, unique=True)
     public_key = models.CharField(

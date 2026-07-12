@@ -24,7 +24,7 @@ uv run python manage.py createsuperuser
 uv run python manage.py runserver
 ```
 
-Open [http://localhost:8000/admin/](http://localhost:8000/admin/), create a tracked site, then copy the generated install snippet. The dashboard is at [http://localhost:8000/dashboard/all](http://localhost:8000/dashboard/all).
+Open [http://localhost:8000/](http://localhost:8000/) and enter a website to test the public onboarding flow. Local magic-link emails are printed to the server console by default. Django admin remains available at [http://localhost:8000/admin/](http://localhost:8000/admin/) for staff users, and the dashboard is at [http://localhost:8000/dashboard/all](http://localhost:8000/dashboard/all).
 
 SQLite is used for local development and the current StageOps deployment. Set
 `DATABASE_URL` to PostgreSQL only for deployments that need higher write
@@ -61,7 +61,7 @@ The tracker captures initial pageviews and SPA navigation through `pushState`, `
 
 ## Reporting
 
-Authenticated superusers can access:
+Authenticated users can access analytics for their own tracked sites. Superusers retain access to every site:
 
 - `GET /api/analytics/overview`
 - `GET /api/analytics/timeseries`
@@ -78,6 +78,18 @@ Copy `.env.example` and supply real secrets. Important details:
 - Mount a MaxMind GeoLite2 Country database and set `SITEHITS_GEOIP_DB_PATH`. Without it, collection continues and country remains `Unknown`.
 - Run the collector over HTTPS. Configure the reverse proxy to limit request rates and cap `/api/events` bodies.
 - Schedule `python manage.py purge_old_events --days 365` daily.
+
+### Passwordless and Google authentication
+
+Anonymous onboarding uses a 10-minute `django-sesame` magic link. Configure a real Django email backend in production with `EMAIL_BACKEND`, `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS`, and `DEFAULT_FROM_EMAIL`. The defaults deliberately use Django's console backend for local development only.
+
+Google sign-up/sign-in uses `django-allauth`. Set `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET`, then add this exact authorized redirect URI to the Google OAuth web client:
+
+```text
+https://sitehits.io/accounts/google/login/callback/
+```
+
+Both methods preserve the submitted website and resume at `/onboarding/`. New tracked sites are owned by the authenticated user; regular users can only open and query their own sites.
 
 The included Dockerfile builds Tailwind/Chart.js assets, collects static files, applies migrations, and starts Gunicorn. Health checks should target `/health/`.
 
