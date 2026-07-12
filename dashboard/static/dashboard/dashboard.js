@@ -9,8 +9,58 @@
   var chart = null;
   var numberFormat = new Intl.NumberFormat();
 
-  document.getElementById("site-selector").addEventListener("change", function (event) {
-    window.location.href = event.target.value + "?period=" + period + "&granularity=" + granularity;
+  var siteMenu = document.getElementById("site-menu");
+  var siteMenuTrigger = document.getElementById("site-menu-trigger");
+  var siteMenuOptions = document.getElementById("site-menu-options");
+  var siteMenuChevron = siteMenu.querySelector("[data-site-menu-chevron]");
+
+  function siteMenuLinks() {
+    return Array.from(siteMenuOptions.querySelectorAll("a"));
+  }
+
+  function setSiteMenuOpen(open, returnFocus) {
+    siteMenuOptions.hidden = !open;
+    siteMenuTrigger.setAttribute("aria-expanded", String(open));
+    siteMenuChevron.classList.toggle("rotate-180", open);
+    if (!open && returnFocus) siteMenuTrigger.focus();
+  }
+
+  siteMenuTrigger.addEventListener("click", function () {
+    setSiteMenuOpen(siteMenuOptions.hidden);
+  });
+
+  siteMenuTrigger.addEventListener("keydown", function (event) {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    var links = siteMenuLinks();
+    setSiteMenuOpen(true);
+    (event.key === "ArrowDown" ? links[0] : links[links.length - 1]).focus();
+  });
+
+  siteMenuOptions.addEventListener("keydown", function (event) {
+    var links = siteMenuLinks();
+    var currentIndex = links.indexOf(document.activeElement);
+    var nextIndex;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setSiteMenuOpen(false, true);
+      return;
+    }
+    if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = links.length - 1;
+    else if (event.key === "ArrowDown") nextIndex = (currentIndex + 1) % links.length;
+    else if (event.key === "ArrowUp") nextIndex = (currentIndex - 1 + links.length) % links.length;
+    else return;
+    event.preventDefault();
+    links[nextIndex].focus();
+  });
+
+  document.addEventListener("click", function (event) {
+    if (!siteMenuOptions.hidden && !siteMenu.contains(event.target)) setSiteMenuOpen(false);
+  });
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && !siteMenuOptions.hidden) setSiteMenuOpen(false, true);
   });
 
   function api(path, extra) {

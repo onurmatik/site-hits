@@ -19,13 +19,53 @@
         <span class="hidden text-lg font-bold tracking-tight sm:inline">SiteHits</span>
       </a>
       <span class="hidden h-6 w-px bg-ink/10 md:block"></span>
-      <label class="sr-only" for="site-selector">Tracked site</label>
-      <select id="site-selector" class="max-w-48 cursor-pointer bg-transparent text-sm font-medium outline-none md:max-w-72">
-        <option value="{% url 'dashboard-all' %}" {% if site_slug == 'all' %}selected{% endif %}>All sites</option>
-        {% for site in sites %}
-          <option value="{% url 'dashboard-site' site.slug %}" {% if selected_site.pk == site.pk %}selected{% endif %}>{{ site.name }}</option>
-        {% endfor %}
-      </select>
+      <div id="site-menu" class="relative flex h-16 min-w-0 items-center">
+        <button id="site-menu-trigger" type="button"
+                class="flex min-h-10 min-w-0 items-center gap-2 text-sm font-medium transition-colors hover:text-forest"
+                aria-haspopup="true" aria-expanded="false" aria-controls="site-menu-options">
+          <span class="max-w-32 truncate sm:max-w-48 md:max-w-72">
+            {% if selected_site %}{{ selected_site.name }}{% else %}All sites{% endif %}
+          </span>
+          <svg data-site-menu-chevron class="size-4 shrink-0 text-muted transition-transform" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+
+        <div id="site-menu-options" hidden
+             class="fixed inset-x-4 top-16 z-50 mt-1 border border-ink/15 bg-white py-1 sm:absolute sm:inset-x-auto sm:left-0 sm:top-full sm:w-64"
+             aria-label="Tracked sites">
+          <a href="{% url 'dashboard-all' %}?period={{ period }}&amp;granularity={{ granularity }}"
+             class="flex min-h-10 items-center justify-between gap-4 px-4 text-sm transition-colors hover:bg-paper{% if site_slug == 'all' %} bg-paper font-medium{% endif %}"
+             {% if site_slug == 'all' %}aria-current="page"{% endif %}>
+            <span class="truncate">All sites</span>
+            {% if site_slug == 'all' %}
+              <svg class="size-4 shrink-0 text-forest" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="m3.5 8.5 3 3 6-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            {% endif %}
+          </a>
+          {% for site in sites %}
+            <a href="{% url 'dashboard-site' site.slug %}?period={{ period }}&amp;granularity={{ granularity }}"
+               class="flex min-h-10 items-center justify-between gap-4 px-4 text-sm transition-colors hover:bg-paper{% if selected_site.pk == site.pk %} bg-paper font-medium{% endif %}"
+               {% if selected_site.pk == site.pk %}aria-current="page"{% endif %}>
+              <span class="truncate">{{ site.name }}</span>
+              {% if selected_site.pk == site.pk %}
+                <svg class="size-4 shrink-0 text-forest" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="m3.5 8.5 3 3 6-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              {% endif %}
+            </a>
+          {% endfor %}
+          <div class="my-1 border-t border-ink/10"></div>
+          <a href="{% url 'home' %}?start=over"
+             class="flex min-h-10 items-center gap-2 px-4 text-sm text-muted transition-colors hover:bg-paper hover:text-ink">
+            <svg class="size-4 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <span>New site</span>
+          </a>
+        </div>
+      </div>
     </div>
     <div class="flex shrink-0 items-center gap-4 md:gap-6">
       <span class="hidden items-center gap-2 sm:flex">

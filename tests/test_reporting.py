@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 import pytest
+from django.urls import reverse
 from django.utils import timezone
 
 from analytics.models import AnalyticsEvent
@@ -114,3 +115,29 @@ def test_timeseries_and_every_breakdown(analytics_data):
         result = breakdown(site.slug, "last7d", dimension)
         assert result["data"]
         assert any(row["label"] == top_label for row in result["data"])
+
+
+@pytest.mark.django_db
+def test_dashboard_uses_downward_site_menu_with_new_site_action(client, superuser, tracked_site):
+    other = TrackedSite.objects.create(
+        name="Other", slug="other", allowed_domains=["other.example"]
+    )
+    client.force_login(superuser)
+
+    response = client.get(
+        reverse("dashboard-site", args=[tracked_site.slug]),
+        {"period": "last30d", "granularity": "daily"},
+    )
+
+    assert response.status_code == 200
+    assert b'id="site-menu-trigger"' in response.content
+    assert b'aria-expanded="false"' in response.content
+    assert b'id="site-menu-options" hidden' in response.content
+    assert b'id="site-selector"' not in response.content
+    assert (
+        f'{reverse("dashboard-site", args=[other.slug])}?period=last30d&amp;granularity=daily'.encode()
+        in response.content
+    )
+    assert b'aria-current="page"' in response.content
+    assert f'{reverse("home")}?start=over'.encode() in response.content
+    assert b"New site" in response.content
