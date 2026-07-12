@@ -59,7 +59,6 @@ umask 077
 {{
   printf 'DJANGO_DEBUG=false\\n'
   printf 'DJANGO_SECRET_KEY=%s\\n' "$(openssl rand -hex 48)"
-  printf 'DATABASE_URL=postgresql:///sitehits\\n'
   printf 'ALLOWED_HOSTS={DOMAIN}\\n'
   printf 'CSRF_TRUSTED_ORIGINS=https://{DOMAIN}\\n'
   printf 'SITEHITS_BASE_URL=https://{DOMAIN}\\n'
