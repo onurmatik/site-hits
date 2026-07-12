@@ -9,7 +9,28 @@
     <p class="sh-mono mb-2 text-muted">Step 3 of 3 · Install tracker</p>
     <h1 id="install-title" class="text-3xl font-semibold tracking-tight">Add one script to {{ site.name }}</h1>
     <p class="mt-4 leading-6 text-muted">Paste this before the closing <code>&lt;/head&gt;</code> tag in your global layout. Pageviews start appearing as soon as the first request arrives.</p>
-    <div class="relative my-8 border border-ink/15 bg-paper p-4 pr-28"><code id="tracking-snippet" class="block overflow-x-auto whitespace-pre-wrap break-all font-mono text-xs leading-6">{{ tracking_snippet }}</code><button id="copy-snippet" type="button" class="absolute right-3 top-3 min-h-10 border border-ink/15 bg-white px-4 text-sm font-medium hover:border-forest">Copy</button></div>
+    <div class="relative my-8 border border-ink/15 bg-paper p-4 sm:pr-32">
+      <code id="tracking-snippet" class="block overflow-x-auto whitespace-pre-wrap break-all font-mono text-xs leading-6">{{ tracking_snippet }}</code>
+      <button type="button" class="mt-3 flex min-h-10 w-24 items-center justify-center gap-2 border border-ink/15 bg-white px-3 text-sm font-medium hover:border-forest sm:absolute sm:right-3 sm:top-3 sm:mt-0" data-copy-target="tracking-snippet" data-copy-name="Tracker script">
+        <svg class="size-4" data-copy-icon aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>
+        <svg class="hidden size-4" data-copied-icon aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"></path></svg>
+        <span data-copy-label>Copy</span>
+      </button>
+    </div>
+    <div class="mb-8">
+      <p class="sh-mono mb-3 text-muted">Instruction for your agent</p>
+      <div class="relative border border-ink/15 bg-paper p-4 sm:pr-32">
+        <code id="agent-instruction" class="block overflow-x-auto whitespace-pre-wrap break-all font-mono text-xs leading-6">Add the following SiteHits tracker script to {{ site.name }}'s global layout immediately before the closing &lt;/head&gt; tag. Preserve the snippet exactly and do not change any existing behavior:
+
+{{ tracking_snippet }}</code>
+        <button type="button" class="mt-3 flex min-h-10 w-24 items-center justify-center gap-2 border border-ink/15 bg-white px-3 text-sm font-medium hover:border-forest sm:absolute sm:right-3 sm:top-3 sm:mt-0" data-copy-target="agent-instruction" data-copy-name="Agent instruction">
+          <svg class="size-4" data-copy-icon aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>
+          <svg class="hidden size-4" data-copied-icon aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"></path></svg>
+          <span data-copy-label>Copy</span>
+        </button>
+      </div>
+    </div>
+    <p id="copy-status" class="sr-only" role="status" aria-live="polite"></p>
     <div class="flex flex-col gap-3 sm:flex-row"><a href="{% url 'dashboard-site' site.slug %}" class="grid min-h-12 flex-1 place-items-center rounded-[2px] bg-forest px-5 font-medium text-white hover:bg-ink">Open dashboard</a>{% if user.is_staff %}<a href="{% url 'admin:websites_trackedsite_change' site.pk %}" class="grid min-h-12 flex-1 place-items-center rounded-[2px] border border-ink/20 bg-white px-5 font-medium hover:border-forest">Advanced settings</a>{% endif %}</div>
   </section>
 </main>
@@ -17,9 +38,38 @@
 
 {% block scripts %}
 <script>
-  document.getElementById("copy-snippet").addEventListener("click", async (event) => {
-    await navigator.clipboard.writeText(document.getElementById("tracking-snippet").textContent);
-    event.currentTarget.textContent = "Copied";
+  const copyStatus = document.getElementById("copy-status");
+  const copyResetTimers = new WeakMap();
+
+  document.querySelectorAll("[data-copy-target]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const target = document.getElementById(button.dataset.copyTarget);
+
+      try {
+        await navigator.clipboard.writeText(target.textContent);
+      } catch (error) {
+        copyStatus.textContent = `${button.dataset.copyName} could not be copied. Please try again.`;
+        return;
+      }
+
+      window.clearTimeout(copyResetTimers.get(button));
+      button.querySelector("[data-copy-icon]").classList.add("hidden");
+      button.querySelector("[data-copied-icon]").classList.remove("hidden");
+      button.querySelector("[data-copy-label]").textContent = "Copied";
+      button.classList.add("border-success", "text-success");
+      const successMessage = `${button.dataset.copyName} copied to clipboard.`;
+      copyStatus.textContent = successMessage;
+
+      copyResetTimers.set(button, window.setTimeout(() => {
+        button.querySelector("[data-copy-icon]").classList.remove("hidden");
+        button.querySelector("[data-copied-icon]").classList.add("hidden");
+        button.querySelector("[data-copy-label]").textContent = "Copy";
+        button.classList.remove("border-success", "text-success");
+        if (copyStatus.textContent === successMessage) {
+          copyStatus.textContent = "";
+        }
+      }, 2000));
+    });
   });
 </script>
 {% endblock %}

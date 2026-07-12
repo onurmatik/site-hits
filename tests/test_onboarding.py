@@ -76,6 +76,10 @@ def test_onboarding_requires_authentication_and_creates_owned_site(client, super
     assert b"https://stats.example/js/script.js" in install.content
     assert site.public_key.encode() in install.content
     assert reverse("dashboard-site", args=[site.slug]).encode() in install.content
+    assert b"Instruction for your agent" in install.content
+    assert b'id="agent-instruction"' in install.content
+    assert install.content.count(b"data-copy-target=") == 2
+    assert b'id="copy-status"' in install.content
 
 
 @pytest.mark.django_db
