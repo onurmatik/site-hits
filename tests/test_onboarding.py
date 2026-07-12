@@ -118,6 +118,7 @@ def test_anonymous_onboarding_shows_signup_options(client):
 @pytest.mark.django_db
 def test_magic_link_creates_user_and_continues_preserved_onboarding(client, settings):
     settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+    settings.SITEHITS_BASE_URL = "https://stats.example"
     client.post(reverse("start-onboarding"), {"website": "magic.example"})
 
     sent = client.post(
@@ -128,9 +129,18 @@ def test_magic_link_creates_user_and_continues_preserved_onboarding(client, sett
     assert sent.status_code == 200
     assert b"Check your inbox" in sent.content
     assert len(mail.outbox) == 1
+    message = mail.outbox[0]
+    assert message.subject == "Your SiteHits sign-in link"
+    assert len(message.alternatives) == 1
+    html = message.alternatives[0].content
+    assert message.alternatives[0].mimetype == "text/html"
+    assert "Sign in to SiteHits" in html
+    assert "Passwordless access" in html
+    assert "https://stats.example/static/sitehits-mark.svg" in html
     user = get_user_model().objects.get(email="owner@example.com")
     assert not user.has_usable_password()
-    login_url = next(line for line in mail.outbox[0].body.splitlines() if "magic-link" in line)
+    login_url = next(line for line in message.body.splitlines() if "magic-link" in line)
+    assert login_url.replace("&", "&amp;") in html
     parsed = urlsplit(login_url)
 
     logged_in = client.get(f"{parsed.path}?{parsed.query}")

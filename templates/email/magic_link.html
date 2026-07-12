@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>Sign in to SiteHits</title>
+  </head>
+  <body style="margin: 0; padding: 0; background: #f7f7f5; color: #17211b; font-family: Arial, Helvetica, sans-serif;">
+    <div style="display: none; max-height: 0; overflow: hidden; opacity: 0;">
+      Your secure SiteHits sign-in link expires in 10 minutes.
+    </div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width: 100%; background: #f7f7f5; border-collapse: collapse;">
+      <tr>
+        <td align="center" style="padding: 40px 16px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width: 100%; max-width: 520px; background: #ffffff; border: 1px solid #dcdedc; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 32px 32px 24px;">
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="border-collapse: collapse;">
+                  <tr>
+                    <td style="padding-right: 12px; vertical-align: middle;">
+                      <img src="{{ logo_url }}" width="32" height="32" alt="" style="display: block; width: 32px; height: 32px; border: 0;">
+                    </td>
+                    <td style="vertical-align: middle; color: #17211b; font-size: 19px; line-height: 24px; font-weight: 700; letter-spacing: -0.3px;">
+                      SiteHits
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 0 32px 32px;">
+                <p style="margin: 0 0 8px; color: #667069; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; font-size: 11px; line-height: 16px; letter-spacing: 0.8px; text-transform: uppercase;">
+                  Passwordless access
+                </p>
+                <h1 style="margin: 0 0 16px; color: #17211b; font-size: 30px; line-height: 36px; font-weight: 600; letter-spacing: -0.6px;">
+                  Sign in to SiteHits
+                </h1>
+                <p style="margin: 0 0 28px; color: #667069; font-size: 16px; line-height: 26px;">
+                  Use the button below to sign in and continue setup.
+                </p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width: 100%; border-collapse: collapse;">
+                  <tr>
+                    <td align="center" bgcolor="#1a3c2b" style="background: #1a3c2b;">
+                      <a href="{{ login_url }}" style="display: block; padding: 15px 24px; color: #ffffff; font-size: 16px; line-height: 20px; font-weight: 600; text-align: center; text-decoration: none;">
+                        Sign in to SiteHits
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin: 20px 0 0; color: #667069; font-size: 13px; line-height: 21px;">
+                  This link expires in 10 minutes. If you did not request it, you can safely ignore this email.
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 24px 32px; border-top: 1px solid #dcdedc; background: #fbfbfa;">
+                <p style="margin: 0 0 8px; color: #667069; font-size: 12px; line-height: 18px;">
+                  Button not working? Copy and paste this link into your browser:
+                </p>
+                <p style="margin: 0; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; font-size: 11px; line-height: 18px; word-break: break-all;">
+                  <a href="{{ login_url }}" style="color: #1a3c2b; text-decoration: underline;">{{ login_url }}</a>
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

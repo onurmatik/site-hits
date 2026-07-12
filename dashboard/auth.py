@@ -4,11 +4,12 @@ from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives
 from django.core.validators import validate_email
 from django.db import transaction
 from django.http import HttpResponseNotAllowed
 from django.shortcuts import redirect, render
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from sesame.utils import get_parameters
@@ -104,17 +105,22 @@ def signup(request):
     login_url = request.build_absolute_uri(
         f"{reverse('sesame-login')}?{urlencode(parameters)}"
     )
+    email_context = {
+        "login_url": login_url,
+        "logo_url": f"{settings.SITEHITS_BASE_URL}{settings.STATIC_URL}sitehits-mark.svg",
+    }
     try:
-        send_mail(
+        message = EmailMultiAlternatives(
             "Your SiteHits sign-in link",
-            (
-                "Use this link to sign in to SiteHits and continue setup:\n\n"
-                f"{login_url}\n\n"
-                "This link expires in 10 minutes. If you did not request it, you can ignore this email."
-            ),
+            render_to_string("email/magic_link.txt", email_context),
             settings.DEFAULT_FROM_EMAIL,
             [email],
         )
+        message.attach_alternative(
+            render_to_string("email/magic_link.html", email_context),
+            "text/html",
+        )
+        message.send()
     except Exception:
         return render(
             request,

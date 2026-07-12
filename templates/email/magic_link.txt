@@ -1,0 +1,5 @@
+Use this link to sign in to SiteHits and continue setup:
+
+{% autoescape off %}{{ login_url }}{% endautoescape %}
+
+This link expires in 10 minutes. If you did not request it, you can ignore this email.
