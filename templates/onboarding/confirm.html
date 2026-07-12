@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block title %}Confirm your website · SiteHits{% endblock %}
+
+{% block body %}
+<main class="grid min-h-screen place-items-center p-4">
+  <section class="sh-panel w-full max-w-xl p-6 md:p-8" aria-labelledby="onboarding-title">
+    <div class="mb-8 flex items-center gap-3"><span class="grid size-9 place-items-center rounded-[2px] bg-forest" aria-hidden="true"><span class="size-4 border border-white/50"></span></span><span class="text-xl font-bold tracking-tight">SiteHits</span></div>
+    <p class="sh-mono mb-2 text-muted">Step 2 of 3 · Confirm website</p>
+    <h1 id="onboarding-title" class="text-3xl font-semibold tracking-tight">Ready to track {{ website.hostname }}</h1>
+    <p class="mt-4 leading-6 text-muted">SiteHits will accept privacy-safe events from this exact hostname. You can add wildcard domains later in Django admin.</p>
+    <dl class="my-8 border-y border-ink/15 py-5"><div class="flex items-center justify-between gap-4"><dt class="sh-mono text-muted">Site name</dt><dd class="font-medium">{{ website.name }}</dd></div><div class="mt-4 flex items-center justify-between gap-4"><dt class="sh-mono text-muted">Allowed domain</dt><dd class="sh-tabular text-sm">{{ website.hostname }}</dd></div></dl>
+    <form method="post">{% csrf_token %}<button class="min-h-12 w-full rounded-[2px] bg-forest px-5 font-medium text-white transition-colors hover:bg-ink">Create tracking site <span aria-hidden="true">→</span></button></form>
+    <a href="{% url 'home' %}?start=over" class="mt-4 block min-h-10 py-2 text-center text-sm text-muted hover:text-ink">Use a different website</a>
+  </section>
+</main>
+{% endblock %}

@@ -2,11 +2,11 @@
 
 ## Product context
 
-SiteHits is an internal, multi-site web analytics dashboard. The primary job is to answer, at a glance: how much traffic arrived, whether engagement improved, where visitors came from, which pages they viewed, and which custom events fired. The first release supports one administrator, site-level reporting, and an aggregate all-sites view.
+SiteHits is a privacy-first, multi-site web analytics service. Anonymous visitors begin with a fast website-first onboarding flow; authenticated administrators use site-level reporting and an aggregate all-sites view. The primary reporting job is to answer, at a glance: how much traffic arrived, whether engagement improved, where visitors came from, which pages they viewed, and which custom events fired.
 
 ## Visual direction
 
-Use a technical-minimalist interface adapted from the Mosaic Grid Architecture system. The product should feel precise, calm, data-dense, and operational. It is not a marketing page. Use flat paper-like surfaces, structural hairlines, compact labels, and generous whitespace around dense data.
+Use a technical-minimalist interface adapted from the Mosaic Grid Architecture system. The product should feel precise, calm, and operational. The anonymous landing may use larger type and more whitespace, but must remain a direct product-entry surface rather than a long marketing page. Use flat paper-like surfaces, structural hairlines, compact labels, and generous whitespace around dense data.
 
 ## Tokens
 
@@ -45,6 +45,10 @@ Use a technical-minimalist interface adapted from the Mosaic Grid Architecture s
 
 ## Components
 
+- Public header: real SiteHits SVG mark, wordmark, and one sign-in action.
+- Website start form: one domain field, inline validation, one forest CTA, and short privacy/setup reassurance.
+- Dashboard preview: browser-framed flat panel using real dashboard KPI and chart patterns; on narrow screens crop the preview inside its panel without causing page-level overflow.
+- Onboarding steps: centered confirmation and install panels, one dominant action per step.
 - Header: forest square mark, wordmark, site selector, optional status and logout action.
 - Filters: flat segmented period controls with a distinct active forest state.
 - KPI card: label, large value, previous-period delta, subtle top accent for one highlighted metric.

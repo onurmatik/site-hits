@@ -31,4 +31,5 @@
   .sh-period { @apply min-h-10 border-r border-ink/10 px-4 py-2 font-mono text-[11px] tracking-[0.08em] uppercase transition-colors last:border-r-0 hover:bg-paper; }
   .sh-period-active { @apply bg-forest text-white hover:bg-forest; }
   .sh-skeleton { @apply animate-pulse bg-forest/10; }
+  .sh-preview-bar { @apply min-w-6 flex-1 bg-forest/20; }
 }

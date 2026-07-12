@@ -46,3 +46,13 @@ def test_tracker_and_health_are_public(client):
     assert "replaceState" in content
     assert "localStorage" not in content
     assert "document.cookie" not in content
+
+
+@pytest.mark.django_db
+def test_logout_returns_to_public_home(client, superuser):
+    client.force_login(superuser)
+
+    response = client.post("/accounts/logout/")
+
+    assert response.status_code == 302
+    assert response.url == "/"

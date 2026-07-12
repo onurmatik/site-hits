@@ -97,7 +97,7 @@ STORAGES = {
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "dashboard-all"
-LOGOUT_REDIRECT_URL = "login"
+LOGOUT_REDIRECT_URL = "home"
 
 SITEHITS_BASE_URL = os.environ.get("SITEHITS_BASE_URL", "http://localhost:8000").rstrip("/")
 SITEHITS_HASH_SECRET = os.environ.get("SITEHITS_HASH_SECRET", SECRET_KEY)

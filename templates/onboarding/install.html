@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Install SiteHits on {{ site.name }}{% endblock %}
+
+{% block body %}
+<main class="grid min-h-screen place-items-center p-4">
+  <section class="sh-panel w-full max-w-2xl p-6 md:p-8" aria-labelledby="install-title">
+    <div class="mb-8 flex items-center justify-between gap-4"><div class="flex items-center gap-3"><span class="grid size-9 place-items-center rounded-[2px] bg-forest" aria-hidden="true"><span class="size-4 border border-white/50"></span></span><span class="text-xl font-bold tracking-tight">SiteHits</span></div><span class="sh-mono text-success">Site created</span></div>
+    <p class="sh-mono mb-2 text-muted">Step 3 of 3 · Install tracker</p>
+    <h1 id="install-title" class="text-3xl font-semibold tracking-tight">Add one script to {{ site.name }}</h1>
+    <p class="mt-4 leading-6 text-muted">Paste this before the closing <code>&lt;/head&gt;</code> tag in your global layout. Pageviews start appearing as soon as the first request arrives.</p>
+    <div class="relative my-8 border border-ink/15 bg-paper p-4 pr-28"><code id="tracking-snippet" class="block overflow-x-auto whitespace-pre-wrap break-all font-mono text-xs leading-6">{{ tracking_snippet }}</code><button id="copy-snippet" type="button" class="absolute right-3 top-3 min-h-10 border border-ink/15 bg-white px-4 text-sm font-medium hover:border-forest">Copy</button></div>
+    <div class="flex flex-col gap-3 sm:flex-row"><a href="{% url 'dashboard-site' site.slug %}" class="grid min-h-12 flex-1 place-items-center rounded-[2px] bg-forest px-5 font-medium text-white hover:bg-ink">Open dashboard</a><a href="{% url 'admin:websites_trackedsite_change' site.pk %}" class="grid min-h-12 flex-1 place-items-center rounded-[2px] border border-ink/20 bg-white px-5 font-medium hover:border-forest">Advanced settings</a></div>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.getElementById("copy-snippet").addEventListener("click", async (event) => {
+    await navigator.clipboard.writeText(document.getElementById("tracking-snippet").textContent);
+    event.currentTarget.textContent = "Copied";
+  });
+</script>
+{% endblock %}

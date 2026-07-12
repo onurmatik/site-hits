@@ -37,6 +37,9 @@
       </button>
       {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
     </form>
+    <a href="{% url 'home' %}" class="mt-6 block min-h-10 py-2 text-center text-sm text-muted transition-colors hover:text-ink">
+      Back to SiteHits
+    </a>
   </section>
 </main>
 {% endblock %}
