@@ -26,7 +26,9 @@ uv run python manage.py runserver
 
 Open [http://localhost:8000/admin/](http://localhost:8000/admin/), create a tracked site, then copy the generated install snippet. The dashboard is at [http://localhost:8000/dashboard/all](http://localhost:8000/dashboard/all).
 
-SQLite is used only as a zero-setup local/test fallback. Set `DATABASE_URL` to PostgreSQL in every deployed environment.
+SQLite is used for local development and the current StageOps deployment. Set
+`DATABASE_URL` to PostgreSQL only for deployments that need higher write
+concurrency.
 
 ## Install on a site
 
