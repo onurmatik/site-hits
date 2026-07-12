@@ -2,9 +2,11 @@ from pathlib import Path
 import os
 
 import dj_database_url
+from dotenv import load_dotenv
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "unsafe-local-sitehits-secret")
 DEBUG = os.environ.get("DJANGO_DEBUG", "true").lower() in {"1", "true", "yes"}

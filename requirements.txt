@@ -57,6 +57,8 @@ pydantic==2.13.4
     # via django-ninja
 pydantic-core==2.46.4
     # via pydantic
+python-dotenv==1.2.2
+    # via sitehits
 requests==2.34.2
     # via geoip2
 sqlparse==0.5.5

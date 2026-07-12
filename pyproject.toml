@@ -13,6 +13,7 @@ dependencies = [
   "psycopg[binary]>=3.2,<4",
   "user-agents>=2.2,<3",
   "whitenoise>=6.9,<7",
+  "python-dotenv>=1.1,<2",
 ]
 
 [dependency-groups]
