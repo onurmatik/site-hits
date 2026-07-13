@@ -10,6 +10,7 @@ from dashboard.views import (
     home,
     onboarding,
     onboarding_install,
+    site_widget,
     start_onboarding,
 )
 
@@ -24,6 +25,7 @@ urlpatterns = [
         name="onboarding-install",
     ),
     path("health/", health, name="health"),
+    path("widget/<str:public_key>/", site_widget, name="site-widget"),
     path("js/script.js", tracker_script, name="tracker-script"),
     path("admin/", admin.site.urls),
     path(

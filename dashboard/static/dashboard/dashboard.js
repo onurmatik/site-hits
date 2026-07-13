@@ -61,6 +61,11 @@
 
   document.addEventListener("keydown", function (event) {
     if (event.key !== "Escape") return;
+    if (embedWidgetDialog && embedWidgetDialog.open) {
+      event.preventDefault();
+      embedWidgetDialog.close();
+      return;
+    }
     if (newSiteDialog && newSiteDialog.open) {
       event.preventDefault();
       newSiteDialog.close();
@@ -74,6 +79,14 @@
   var newSiteClose = document.getElementById("new-site-close");
   var newSiteForm = document.getElementById("new-site-form");
   var newSiteDomain = document.getElementById("new-site-domain");
+  var embedWidgetTrigger = document.getElementById("embed-widget-trigger");
+  var embedWidgetDialog = document.getElementById("embed-widget-dialog");
+  var embedWidgetClose = document.getElementById("embed-widget-close");
+  var embedWidgetCode = document.getElementById("embed-widget-code");
+  var copyEmbedWidget = document.getElementById("copy-embed-widget");
+  var embedWidgetAgentInstruction = document.getElementById("embed-widget-agent-instruction");
+  var copyEmbedWidgetAgent = document.getElementById("copy-embed-widget-agent");
+  var copyEmbedWidgetStatus = document.getElementById("copy-embed-widget-status");
 
   if (newSiteTrigger && newSiteDialog) {
     function openNewSiteDialog() {
@@ -104,6 +117,73 @@
     });
 
     if (newSiteDialog.hasAttribute("data-open-on-load")) openNewSiteDialog();
+  }
+
+  if (embedWidgetTrigger && embedWidgetDialog) {
+    function openEmbedWidgetDialog() {
+      embedWidgetDialog.showModal();
+      window.requestAnimationFrame(function () { embedWidgetClose.focus(); });
+    }
+
+    function setCopyWidgetState(button, label, status) {
+      button.textContent = label;
+      copyEmbedWidgetStatus.textContent = status;
+    }
+
+    function legacyCopyWidgetText(target) {
+      target.focus();
+      target.select();
+      return document.execCommand && document.execCommand("copy");
+    }
+
+    function installWidgetCopy(button, target, itemName, defaultLabel) {
+      if (!button || !target) return;
+      button.addEventListener("click", function () {
+        var copy = navigator.clipboard && navigator.clipboard.writeText
+          ? navigator.clipboard.writeText(target.value)
+          : Promise.resolve(legacyCopyWidgetText(target));
+        Promise.resolve(copy).then(function (copied) {
+          if (copied === false) {
+            setCopyWidgetState(button, "Text selected", "Copy the selected text from the field.");
+            return;
+          }
+          var successMessage = itemName + " copied to the clipboard.";
+          setCopyWidgetState(button, "Copied", successMessage);
+          window.setTimeout(function () {
+            button.textContent = defaultLabel;
+            if (copyEmbedWidgetStatus.textContent === successMessage) {
+              copyEmbedWidgetStatus.textContent = "";
+            }
+          }, 2000);
+        }).catch(function () {
+          legacyCopyWidgetText(target);
+          setCopyWidgetState(button, "Text selected", "Copy the selected text from the field.");
+        });
+      });
+    }
+
+    embedWidgetTrigger.addEventListener("click", openEmbedWidgetDialog);
+    embedWidgetClose.addEventListener("click", function () { embedWidgetDialog.close(); });
+
+    embedWidgetDialog.addEventListener("click", function (event) {
+      if (event.target !== embedWidgetDialog) return;
+      var bounds = embedWidgetDialog.getBoundingClientRect();
+      var inside = event.clientX >= bounds.left && event.clientX <= bounds.right
+        && event.clientY >= bounds.top && event.clientY <= bounds.bottom;
+      if (!inside) embedWidgetDialog.close();
+    });
+
+    embedWidgetDialog.addEventListener("close", function () {
+      if (document.contains(embedWidgetTrigger)) embedWidgetTrigger.focus();
+    });
+
+    installWidgetCopy(copyEmbedWidget, embedWidgetCode, "Embed code", "Copy embed code");
+    installWidgetCopy(
+      copyEmbedWidgetAgent,
+      embedWidgetAgentInstruction,
+      "Agent instruction",
+      "Copy agent instruction"
+    );
   }
 
   function api(path, extra) {

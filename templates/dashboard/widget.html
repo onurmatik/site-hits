@@ -1,0 +1,67 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <meta name="robots" content="noindex,nofollow">
+    <meta http-equiv="refresh" content="60">
+    <title>{{ site.name }} live traffic · SiteHits</title>
+    <link rel="icon" href="{% static 'sitehits-mark.svg' %}" type="image/svg+xml">
+    <link rel="stylesheet" href="{% static 'css/widget.css' %}">
+  </head>
+  <body>
+    <main class="sh-widget" aria-labelledby="widget-title">
+      <header class="sh-widget-header">
+        <div>
+          <p id="widget-title" class="sh-widget-label">Visitors in the last 60 minutes</p>
+          <div class="sh-widget-total-row">
+            <strong class="sh-widget-total">{{ snapshot.visitors }}</strong>
+            <span class="sh-widget-live" aria-label="Live, refreshed every minute">
+              <i aria-hidden="true"></i>
+              Live
+            </span>
+          </div>
+        </div>
+      </header>
+
+      <section class="sh-widget-chart" aria-label="Visitors per minute in {{ snapshot.timezone }}">
+        <div class="sh-widget-bars" aria-hidden="true">
+          {% for minute in snapshot.minutes %}
+            <i class="sh-widget-bar{% if not minute.visitors %} is-empty{% endif %}"
+               style="--bar-height: {{ minute.height }}%"></i>
+          {% endfor %}
+        </div>
+        <div class="sh-widget-axis" aria-hidden="true">
+          {% for label in snapshot.axis_labels %}<span>{{ label }}</span>{% endfor %}
+        </div>
+      </section>
+
+      <section class="sh-widget-countries" aria-labelledby="countries-title">
+        <h2 id="countries-title">Countries</h2>
+        {% if snapshot.countries %}
+          <ol>
+            {% for country in snapshot.countries %}
+              <li>
+                <span class="sh-widget-country-code" aria-hidden="true">{{ country.code }}</span>
+                <span class="sh-widget-country-name">{{ country.name }}</span>
+                <strong>{{ country.visitors }}</strong>
+              </li>
+            {% endfor %}
+          </ol>
+        {% else %}
+          <p class="sh-widget-empty">No country data in the last hour.</p>
+        {% endif %}
+      </section>
+
+      <footer class="sh-widget-footer">
+        <a href="{{ sitehits_url }}" target="_blank" rel="noopener noreferrer">
+          <img src="{% static 'sitehits-mark.svg' %}" alt="" width="18" height="18">
+          <span>Powered by SiteHits</span>
+        </a>
+        <span>{{ site.name }}</span>
+      </footer>
+    </main>
+  </body>
+</html>

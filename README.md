@@ -69,6 +69,8 @@ Authenticated users can access analytics for their own tracked sites. Superusers
 
 Common query parameters are `site=all|<slug>`, `period=today|last24h|last7d|last30d|last90d`, and `granularity=auto|hourly|daily` for time series.
 
+Each selected-site dashboard also provides an **Embed widget** action. It generates a public iframe showing aggregate distinct visitors, minute activity, and the top three countries for the last 60 minutes. The widget URL uses the site's public tracking key, refreshes every minute, and intentionally excludes paths, referrers, sessions, and custom-event details.
+
 ## Production configuration
 
 Copy `.env.example` and supply real secrets. Important details:

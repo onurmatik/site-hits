@@ -5,7 +5,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from analytics.models import AnalyticsEvent
-from analytics.reporting import breakdown, overview, timeseries
+from analytics.reporting import breakdown, last_hour_widget, overview, timeseries
 from websites.models import TrackedSite
 
 
@@ -118,6 +118,50 @@ def test_timeseries_and_every_breakdown(analytics_data):
 
 
 @pytest.mark.django_db
+def test_last_hour_widget_uses_sixty_minute_buckets_and_distinct_visitors(
+    analytics_data,
+):
+    site, _ = analytics_data
+
+    snapshot = last_hour_widget(site)
+
+    assert snapshot["visitors"] == 2
+    assert len(snapshot["minutes"]) == 60
+    assert len(snapshot["axis_labels"]) == 5
+    assert sum(row["visitors"] for row in snapshot["minutes"]) == 2
+    assert snapshot["countries"] == [
+        {"code": "TR", "name": "Türkiye", "visitors": 2}
+    ]
+
+
+@pytest.mark.django_db
+def test_public_widget_is_frameable_and_contains_only_aggregate_data(
+    client,
+    tracked_site,
+):
+    make_event(
+        tracked_site,
+        minutes=5,
+        session="widget-session",
+        visitor="widget-visitor",
+        path="/private-path",
+        country_name="Germany",
+        country_code="DE",
+    )
+
+    response = client.get(reverse("site-widget", args=[tracked_site.public_key]))
+
+    assert response.status_code == 200
+    assert "X-Frame-Options" not in response
+    assert "frame-ancestors *" in response["Content-Security-Policy"]
+    assert response["Referrer-Policy"] == "no-referrer"
+    assert b"Visitors in the last 60 minutes" in response.content
+    assert b"Germany" in response.content
+    assert b"/private-path" not in response.content
+    assert response.content.count(b"sh-widget-bar") >= 60
+
+
+@pytest.mark.django_db
 def test_dashboard_uses_downward_site_menu_with_new_site_action(client, superuser, tracked_site):
     other = TrackedSite.objects.create(
         name="Other", slug="other", allowed_domains=["other.example"]
@@ -144,3 +188,14 @@ def test_dashboard_uses_downward_site_menu_with_new_site_action(client, superuse
     assert f'action="{reverse("start-onboarding")}"'.encode() in response.content
     assert b'name="flow" value="dashboard-new-site"' in response.content
     assert b"New site" in response.content
+    assert b'id="embed-widget-trigger"' in response.content
+    assert b'id="embed-widget-dialog"' in response.content
+    assert b'id="copy-embed-widget"' in response.content
+    assert b'id="embed-widget-agent-instruction"' in response.content
+    assert b'id="copy-embed-widget-agent"' in response.content
+    assert b"Instruction for your agent" in response.content
+    assert b"Preserve the iframe exactly" in response.content
+    assert tracked_site.public_key.encode() in response.content
+
+    all_sites = client.get(reverse("dashboard-all"))
+    assert b'id="embed-widget-trigger"' not in all_sites.content

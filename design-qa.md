@@ -1,46 +1,46 @@
-# Design QA: signed-in add website modal
+# Design QA: last-hour embeddable widget
 
 ## Comparison target
 
-- Source visual truth: `/var/folders/hg/sj0h9z5d7r75rpy6rqfq8_vr0000gn/T/TemporaryItems/NSIRD_screencaptureui_av5iiR/Screenshot 2026-07-12 at 17.13.57.png`
-- Implementation screenshot: `/tmp/sitehits-new-site-modal.png`
-- Full-view comparison: `/tmp/sitehits-new-site-modal-comparison.png`
-- Focused modal comparison: `/tmp/sitehits-new-site-modal-focused-comparison.png`
-- Mobile implementation screenshot: `/tmp/sitehits-new-site-modal-mobile.png`
-- Desktop viewport: 1120 × 682
-- Mobile viewport: 390 × 844
-- State: authenticated dashboard, site menu closed, Add a new website modal open, empty domain field focused
+- Source visual truth: `/var/folders/hg/sj0h9z5d7r75rpy6rqfq8_vr0000gn/T/TemporaryItems/NSIRD_screencaptureui_1ZDrAw/Screenshot 2026-07-13 at 10.34.13.png`
+- Browser-rendered implementation: `/tmp/sitehits-widget-400x600.png`
+- Mobile implementation: `/tmp/sitehits-widget-320x600.png`
+- Full-view combined comparison: `/tmp/sitehits-widget-comparison.png`
+- Primary viewport: 400 × 600
+- Responsive viewport: 320 × 600
+- State: public widget with 49 temporary QA visitors across 24 non-empty minute buckets and three country rows
+
+The complete card remains readable in the combined full-view comparison, so a separate focused crop was not needed.
 
 ## Findings
 
 - No actionable P0, P1, or P2 differences remain.
-- The implementation preserves the reference hierarchy: separated title row, Domain control with protocol prefix, Timezone row with local time, explanatory copy, and one full-width Add website action.
-- The narrower 576px panel, 2px radius, forest CTA, flat border, and absence of a decorative shadow are intentional SiteHits design-system constraints rather than fidelity defects.
-- The Close action is an intentional accessibility and recovery affordance added to the reference structure.
+- The implementation keeps the reference hierarchy: recent-visitor label, large live total, minute bars with time labels, country ranking, and attribution.
+- The 60-minute window, sixty one-minute buckets, SiteHits forest palette, 2px frame, square data bars, ISO country-code metadata, and shadow-free surface are intentional product requirements rather than fidelity defects.
+- The reference's flag emoji, orange palette, inflated rounded card, decorative shadow, and DataFast attribution were intentionally replaced by SiteHits design-system equivalents.
 
 ## Required fidelity surfaces
 
-- Fonts and typography: SiteHits keeps its Space Grotesk/system sans and JetBrains Mono/system mono stacks. Heading, labels, helper copy, metadata, and CTA weights follow the existing dashboard hierarchy without introducing a reference-specific font.
-- Spacing and layout rhythm: header divider, 20px form rhythm, 48px controls, responsive 576px maximum width, and 16px mobile viewport gutters are consistent. At 390px, the page has no horizontal overflow and the dialog occupies 358px.
-- Colors and visual tokens: paper, panel, ink, muted, forest, coral focus, and hairline borders all come from the checked-in SiteHits tokens. The DataFast orange is intentionally not copied.
-- Image quality and asset fidelity: no raster assets are required. The domain globe reuses the existing SiteHits form icon treatment; no placeholder or newly drawn decorative asset was introduced.
-- Copy and content: title, Domain, Timezone, local-time context, “today” helper copy, and Add website action match the requested flow. The neutral `example.com` placeholder follows the existing product copy style.
+- Fonts and typography: the widget uses the existing Space Grotesk/system sans and JetBrains Mono/system mono stacks. The hierarchy remains close to the reference while matching SiteHits metadata and tabular-number conventions.
+- Spacing and layout rhythm: the 400 × 600 card has 28px primary padding, a 168px chart, clear country separation, and a compact footer. At 320px it reduces to 22px padding with no horizontal overflow.
+- Colors and visual tokens: panel white, ink, muted ink, forest chart bars, success live indicator, coral focus, and hairline borders all use checked-in SiteHits tokens.
+- Image quality and asset fidelity: the only image asset is the real checked-in SiteHits mark. Dynamic country values use text codes instead of fake or generated flag assets.
+- Copy and content: "Visitors in the last 60 minutes", "Live", "Countries", and "Powered by SiteHits" are concise and describe the actual data contract.
 
 ## Interaction and responsive verification
 
-- Opened the site selector and launched the modal from New site.
-- Verified focus enters the Domain field.
-- Verified Escape closes the modal and returns focus to the visible site-menu trigger.
-- Submitted an invalid domain and verified the dashboard reloads with the modal open, the entered value preserved, and an inline error announced.
-- Verified the server-side success path creates or reuses the owned site and redirects directly to tracker installation.
-- Checked the in-app browser console: no errors.
-- Checked 390 × 844 layout: viewport width 390, page scroll width 390, dialog bounds 16–374px.
+- Opened the public widget in the Codex in-app browser at 400 × 600 and 320 × 600.
+- Confirmed exactly 60 chart bars, three country rows, and 24 non-empty QA minute buckets.
+- Confirmed page width equals scroll width at both breakpoints: 400/400 and 320/320.
+- Confirmed the card occupies 398px at the primary viewport and 318px at the responsive viewport.
+- Checked browser console warnings/errors at both viewports: none.
+- The public card has no controls. Dashboard modal open/close, copy success, Escape dismissal, and focus restoration are covered by the JavaScript interaction suite.
+- Temporary QA analytics events were deleted after capture; the development server and browser tab were also cleaned up.
 
 ## Comparison history
 
-1. Pass 1 found a P2 keyboard issue: the browser surface did not reliably apply native Escape cancellation. Fixed by making Escape closure an explicit application behavior.
-2. Pass 2 found a P2 focus issue: restoring focus to New site failed because that control is hidden when the menu closes. Fixed by restoring focus to the visible site-menu trigger.
-3. Pass 3 rechecked desktop visual structure, error recovery, focus behavior, mobile overflow, and console output. No actionable P0/P1/P2 findings remain.
+1. The first browser capture showed the empty/flat distribution correctly but did not exercise varied bar heights. Temporary aggregate-only QA events were added, the final browser capture showed multiple bar heights and ranked country counts, and those events were then deleted.
+2. The final combined comparison found no actionable P0/P1/P2 mismatch. No source-code visual fix was required after the final comparison.
 
 ## Follow-up polish
 

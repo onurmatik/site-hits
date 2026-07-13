@@ -11,6 +11,7 @@ The primary jobs to be done are:
 - Compare recent performance with a previous period.
 - Move from an anonymous website entry to an owned account without losing the submitted website.
 - Install one tracking script and immediately reach the relevant site dashboard.
+- Publish a compact, branded last-hour traffic snapshot on another website with one iframe snippet.
 
 The product is server-rendered with Django templates and Tailwind utilities. It has no sidebar and no extracted client-side component library. The current visual source of truth is `assets/design-system.css`, `assets/tailwind.css`, the templates under `templates/`, and `static/sitehits-mark.svg`.
 
@@ -24,7 +25,8 @@ The product is server-rendered with Django templates and Tailwind utilities. It 
 6. `/onboarding/` is the centered website confirmation step.
 7. `/onboarding/<site-slug>/` is the centered tracker installation step.
 8. `/dashboard/all` and `/dashboard/<site-slug>` are authenticated reporting views.
-9. Django admin and API documentation remain secondary, operational destinations.
+9. `/widget/<public-key>/` is a frameable, aggregate-only last-60-minutes card for one active site.
+10. Django admin and API documentation remain secondary, operational destinations.
 
 An existing account must be able to continue through the same authentication screen. Provider/email authentication should resolve to sign-in when the identity already exists and sign-up when it does not; the UI should not force users to understand that distinction. A small "Already have an account? Sign in" affordance may be shown where a distinct legacy sign-in route remains necessary.
 
@@ -159,6 +161,16 @@ The authenticated header contains the mark/wordmark, site selector, optional ope
 - Chart panel: title/legend row and fixed-height plot, with forest for visitors and coral for pageviews.
 - Breakdown table: title row, ranked items, proportional forest bar, and right-aligned value.
 - Dashboard preview: browser-framed flat panel composed from the real dashboard vocabulary. On narrow screens crop its 680px internal canvas inside the panel; never create page-level overflow.
+
+### Embeddable last-hour widget
+
+- Expose the action only for one selected site, never the all-sites aggregate.
+- Use a standalone 400 × 600px frame that scales down to 280px without horizontal overflow.
+- Show distinct visitors in the last 60 minutes, sixty one-minute bars, five time labels, and the top three countries by distinct visitors.
+- Refresh the frame every 60 seconds. Do not include the SiteHits tracking script in the widget document.
+- Keep the public-data disclosure next to the generated iframe code in the dashboard dialog.
+- Use the real SiteHits mark in a small attribution row. Country codes are text metadata, not decorative flag emoji.
+- Preserve the flat 2px radius, hairline border, forest series, mono metadata, and shadow-free surfaces.
 
 ### Feedback states
 

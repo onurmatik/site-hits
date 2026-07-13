@@ -13,6 +13,9 @@ The dashboard uses a single authenticated application shell:
 - Five-column KPI grid on wide screens, two columns on tablets, one on phones.
 - Full-width chart.
 - Two-column breakdown grid that collapses to one column.
+- Selected-site embed dialog with a two-column preview/code layout that stacks on mobile.
+
+The public widget uses a standalone, tracker-free document capped at 400px wide and 600px tall. It is frameable on third-party sites and does not inherit the dashboard shell.
 
 No sidebar is required for the internal MVP.
 

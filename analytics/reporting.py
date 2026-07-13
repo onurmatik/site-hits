@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db.models import Case, CharField, Count, Max, Min, Q, Value, When
-from django.db.models.functions import Cast, Concat, TruncDay, TruncHour
+from django.db.models.functions import Cast, Concat, TruncDay, TruncHour, TruncMinute
 from django.utils import timezone
 
 from websites.models import TrackedSite
@@ -209,4 +209,72 @@ def breakdown(site_slug, period, dimension, limit=8, sites=None):
             }
             for row in rows
         ],
+    }
+
+
+def last_hour_widget(site, now=None):
+    """Return a public, aggregate-only snapshot for a site's embed widget."""
+    tzinfo = report_timezone(site)
+    current_minute = (now or timezone.now()).astimezone(tzinfo).replace(
+        second=0,
+        microsecond=0,
+    )
+    end = current_minute + timedelta(minutes=1)
+    start = end - timedelta(hours=1)
+    queryset = AnalyticsEvent.objects.filter(
+        site=site,
+        occurred_at__gte=start,
+        occurred_at__lt=end,
+    )
+
+    minute_rows = (
+        queryset.annotate(bucket=TruncMinute("occurred_at", tzinfo=tzinfo))
+        .values("bucket")
+        .annotate(visitors=Count("visitor_hash", distinct=True))
+        .order_by("bucket")
+    )
+    visitors_by_minute = {
+        row["bucket"].astimezone(tzinfo).replace(second=0, microsecond=0): row[
+            "visitors"
+        ]
+        for row in minute_rows
+    }
+    minutes = [
+        {
+            "bucket": start + timedelta(minutes=index),
+            "visitors": visitors_by_minute.get(
+                start + timedelta(minutes=index),
+                0,
+            ),
+        }
+        for index in range(60)
+    ]
+    max_visitors = max((minute["visitors"] for minute in minutes), default=0)
+    for minute in minutes:
+        minute["height"] = (
+            round(minute["visitors"] / max_visitors * 100) if max_visitors else 0
+        )
+        minute["label"] = minute["bucket"].strftime("%H:%M")
+
+    country_rows = (
+        queryset.values("country_code", "country_name")
+        .annotate(visitors=Count("visitor_hash", distinct=True))
+        .order_by("-visitors", "country_name")[:3]
+    )
+    countries = [
+        {
+            "code": row["country_code"].upper() or "--",
+            "name": row["country_name"] or "Unknown",
+            "visitors": row["visitors"],
+        }
+        for row in country_rows
+    ]
+    axis_indexes = (0, 15, 30, 45, 59)
+
+    return {
+        "visitors": queryset.values("visitor_hash").distinct().count(),
+        "minutes": minutes,
+        "axis_labels": [minutes[index]["label"] for index in axis_indexes],
+        "countries": countries,
+        "timezone": str(tzinfo),
     }

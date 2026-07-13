@@ -29,15 +29,29 @@ function installDashboard() {
           <button type="submit"><span data-new-site-submit-label>Add website</span></button>
         </form>
       </dialog>
+      <button id="embed-widget-trigger" type="button">Embed widget</button>
+      <dialog id="embed-widget-dialog">
+        <button id="embed-widget-close" type="button">Close</button>
+        <textarea id="embed-widget-code"><iframe src="/widget/example"></iframe></textarea>
+        <button id="copy-embed-widget" type="button">Copy embed code</button>
+        <textarea id="embed-widget-agent-instruction">Add this iframe without changing behavior.</textarea>
+        <button id="copy-embed-widget-agent" type="button">Copy agent instruction</button>
+        <p id="copy-embed-widget-status"></p>
+      </dialog>
     </div>`;
-  const dialog = document.getElementById("new-site-dialog");
-  dialog.showModal = function () {
-    this.setAttribute("open", "");
-  };
-  dialog.close = function () {
-    this.removeAttribute("open");
-    this.dispatchEvent(new Event("close"));
-  };
+  document.querySelectorAll("dialog").forEach((dialog) => {
+    dialog.showModal = function () {
+      this.setAttribute("open", "");
+    };
+    dialog.close = function () {
+      this.removeAttribute("open");
+      this.dispatchEvent(new Event("close"));
+    };
+  });
+  Object.defineProperty(window.navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: vi.fn(() => Promise.resolve()) },
+  });
   global.fetch = vi.fn(() => new Promise(() => {}));
   window.eval(source);
 }
@@ -95,6 +109,39 @@ describe("dashboard site menu", () => {
     document.getElementById("new-site-domain").dispatchEvent(
       new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
     );
+
+    expect(dialog.open).toBe(false);
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  test("opens the embed dialog, copies its code, and restores focus on Escape", async () => {
+    const trigger = document.getElementById("embed-widget-trigger");
+    const dialog = document.getElementById("embed-widget-dialog");
+    const copy = document.getElementById("copy-embed-widget");
+
+    trigger.click();
+    expect(dialog.open).toBe(true);
+
+    copy.click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(window.navigator.clipboard.writeText).toHaveBeenCalledWith(
+      '<iframe src="/widget/example"></iframe>',
+    );
+    expect(copy.textContent).toBe("Copied");
+
+    const copyAgent = document.getElementById("copy-embed-widget-agent");
+    copyAgent.click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(window.navigator.clipboard.writeText).toHaveBeenLastCalledWith(
+      "Add this iframe without changing behavior.",
+    );
+    expect(copyAgent.textContent).toBe("Copied");
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
 
     expect(dialog.open).toBe(false);
     expect(document.activeElement).toBe(trigger);

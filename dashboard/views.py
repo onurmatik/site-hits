@@ -1,3 +1,4 @@
+from html import escape
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
@@ -12,7 +13,10 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.text import slugify
+from django.views.decorators.cache import cache_page
+from django.views.decorators.clickjacking import xframe_options_exempt
 
+from analytics.reporting import last_hour_widget
 from websites.models import TrackedSite
 
 
@@ -210,6 +214,26 @@ def dashboard(request, site_slug):
         granularity = "auto"
     new_site_form = request.session.pop(NEW_SITE_FORM_SESSION_KEY, {})
     report_now = timezone.localtime(timezone.now(), ZoneInfo(settings.TIME_ZONE))
+    widget_url = ""
+    widget_embed_code = ""
+    widget_agent_instruction = ""
+    if selected:
+        widget_url = request.build_absolute_uri(
+            reverse("site-widget", args=[selected.public_key])
+        )
+        widget_title = escape(f"Last hour traffic for {selected.name}", quote=True)
+        widget_embed_code = (
+            f'<iframe src="{widget_url}" title="{widget_title}" width="400" '
+            'height="600" style="width:100%;max-width:400px;border:0" '
+            'loading="lazy" referrerpolicy="no-referrer"></iframe>'
+        )
+        widget_agent_instruction = (
+            f"Add the following SiteHits last-hour traffic widget to {selected.name}'s "
+            "public page where the traffic snapshot should appear. Preserve the iframe "
+            "exactly, keep it responsive, and do not expose any additional analytics data "
+            "or change existing behavior:\n\n"
+            f"{widget_embed_code}"
+        )
     return render(
         request,
         "dashboard/dashboard.html",
@@ -223,6 +247,9 @@ def dashboard(request, site_slug):
             "new_site_error": new_site_form.get("error", ""),
             "report_timezone": settings.TIME_ZONE.replace("_", " ").replace("/", " / "),
             "report_local_time": report_now.strftime("%I:%M %p").lstrip("0"),
+            "widget_url": widget_url,
+            "widget_embed_code": widget_embed_code,
+            "widget_agent_instruction": widget_agent_instruction,
             "breakdowns": [
                 ("pages", "Top pages", "Views"),
                 ("referrers", "Top referrers", "Views"),
@@ -233,3 +260,27 @@ def dashboard(request, site_slug):
             ],
         },
     )
+
+
+@xframe_options_exempt
+@cache_page(60)
+def site_widget(request, public_key):
+    site = get_object_or_404(
+        TrackedSite.objects.filter(is_active=True),
+        public_key=public_key,
+    )
+    response = render(
+        request,
+        "dashboard/widget.html",
+        {
+            "site": site,
+            "snapshot": last_hour_widget(site),
+            "sitehits_url": settings.SITEHITS_BASE_URL,
+        },
+    )
+    response["Content-Security-Policy"] = (
+        "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self'; "
+        "base-uri 'none'; form-action 'none'; frame-ancestors *"
+    )
+    response["Referrer-Policy"] = "no-referrer"
+    return response

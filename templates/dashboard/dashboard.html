@@ -90,13 +90,21 @@
           {% if selected_site %}{{ selected_site.allowed_domains|join:", " }}{% else %}Aggregate across active properties; visitors are not deduplicated between sites.{% endif %}
         </p>
       </div>
-      <nav class="flex max-w-full overflow-x-auto rounded-[2px] border border-ink/15 bg-white" aria-label="Reporting period">
-        <a class="sh-period {% if period == 'today' %}sh-period-active{% endif %}" href="?period=today&granularity=hourly">Today</a>
-        <a class="sh-period {% if period == 'last24h' %}sh-period-active{% endif %}" href="?period=last24h&granularity=hourly">24H</a>
-        <a class="sh-period {% if period == 'last7d' %}sh-period-active{% endif %}" href="?period=last7d&granularity=daily">7D</a>
-        <a class="sh-period {% if period == 'last30d' %}sh-period-active{% endif %}" href="?period=last30d&granularity=daily">30D</a>
-        <a class="sh-period {% if period == 'last90d' %}sh-period-active{% endif %}" href="?period=last90d&granularity=daily">90D</a>
-      </nav>
+      <div class="flex max-w-full flex-wrap items-center gap-3">
+        {% if selected_site %}
+          <button id="embed-widget-trigger" type="button"
+                  class="min-h-10 rounded-[2px] border border-ink/15 bg-white px-4 text-sm font-medium transition-colors hover:border-forest hover:text-forest">
+            Embed widget
+          </button>
+        {% endif %}
+        <nav class="flex max-w-full overflow-x-auto rounded-[2px] border border-ink/15 bg-white" aria-label="Reporting period">
+          <a class="sh-period {% if period == 'today' %}sh-period-active{% endif %}" href="?period=today&granularity=hourly">Today</a>
+          <a class="sh-period {% if period == 'last24h' %}sh-period-active{% endif %}" href="?period=last24h&granularity=hourly">24H</a>
+          <a class="sh-period {% if period == 'last7d' %}sh-period-active{% endif %}" href="?period=last7d&granularity=daily">7D</a>
+          <a class="sh-period {% if period == 'last30d' %}sh-period-active{% endif %}" href="?period=last30d&granularity=daily">30D</a>
+          <a class="sh-period {% if period == 'last90d' %}sh-period-active{% endif %}" href="?period=last90d&granularity=daily">90D</a>
+        </nav>
+      </div>
     </section>
 
     <div id="dashboard-error" class="hidden border border-coral bg-coral/10 p-4 text-sm text-danger" role="alert"></div>
@@ -190,6 +198,60 @@
       </form>
     </section>
   </dialog>
+
+  {% if selected_site %}
+    <dialog id="embed-widget-dialog"
+            class="fixed inset-0 m-auto max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] max-w-5xl overflow-y-auto border-0 bg-transparent p-0 text-ink backdrop:bg-ink/30"
+            aria-labelledby="embed-widget-title">
+      <section class="sh-panel w-full">
+        <header class="flex items-center justify-between gap-4 border-b border-ink/15 px-5 py-4 sm:px-6">
+          <div>
+            <p class="sh-mono mb-1 text-muted">{{ selected_site.name }}</p>
+            <h2 id="embed-widget-title" class="text-lg font-semibold tracking-tight">Public traffic widget</h2>
+          </div>
+          <button id="embed-widget-close" type="button" class="sh-mono min-h-10 px-1 text-muted transition-colors hover:text-ink">Close</button>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2">
+          <section class="border-b border-ink/15 bg-paper p-4 sm:p-6 lg:border-r lg:border-b-0" aria-labelledby="widget-preview-title">
+            <h3 id="widget-preview-title" class="sh-mono mb-4 text-[10px] text-muted">Live preview</h3>
+            <iframe src="{{ widget_url }}" title="Last hour traffic for {{ selected_site.name }}"
+                    class="mx-auto block h-[600px] w-full max-w-[400px] border-0 bg-white"
+                    width="400" height="600" loading="eager" referrerpolicy="no-referrer"></iframe>
+          </section>
+
+          <section class="flex flex-col p-5 sm:p-8" aria-labelledby="widget-code-title">
+            <h3 id="widget-code-title" class="text-xl font-semibold tracking-tight">Embed the last hour</h3>
+            <p class="mt-3 text-sm leading-6 text-muted">
+              This URL is public. Anyone with the widget link can see aggregate visitor activity and the top three countries for the last 60 minutes.
+            </p>
+
+            <div class="mt-8 flex-1">
+              <label for="embed-widget-code" class="sh-mono mb-2 block text-[10px] text-muted">Embed code</label>
+              <textarea id="embed-widget-code" readonly rows="5" spellcheck="false"
+                        class="sh-tabular w-full resize-none rounded-[2px] border border-ink/15 bg-paper p-4 font-mono text-xs leading-6 text-ink outline-none focus:border-forest">{{ widget_embed_code }}</textarea>
+              <button id="copy-embed-widget" type="button"
+                      class="mt-4 min-h-12 w-full rounded-[2px] bg-forest px-5 font-medium text-white transition-colors hover:bg-ink">
+                Copy embed code
+              </button>
+
+              <div class="mt-8 border-t border-ink/15 pt-8">
+                <label for="embed-widget-agent-instruction" class="sh-mono mb-2 block text-[10px] text-muted">Instruction for your agent</label>
+                <textarea id="embed-widget-agent-instruction" readonly rows="10" spellcheck="false"
+                          class="sh-tabular w-full resize-none rounded-[2px] border border-ink/15 bg-paper p-4 font-mono text-xs leading-6 text-ink outline-none focus:border-forest">{{ widget_agent_instruction }}</textarea>
+                <button id="copy-embed-widget-agent" type="button"
+                        class="mt-4 min-h-12 w-full rounded-[2px] border border-ink/15 bg-white px-5 font-medium text-ink transition-colors hover:border-forest">
+                  Copy agent instruction
+                </button>
+              </div>
+
+              <p id="copy-embed-widget-status" class="mt-3 min-h-5 text-sm text-muted" aria-live="polite"></p>
+            </div>
+          </section>
+        </div>
+      </section>
+    </dialog>
+  {% endif %}
 </div>
 {% endblock %}
 

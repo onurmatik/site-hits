@@ -1,0 +1,247 @@
+:root {
+  --sh-paper: #f7f7f5;
+  --sh-panel: #ffffff;
+  --sh-ink: #17211b;
+  --sh-muted: #667069;
+  --sh-forest: #1a3c2b;
+  --sh-success: #287a4b;
+  --sh-hairline: rgba(23, 33, 27, 0.14);
+  --sh-font-sans: "Space Grotesk", Inter, ui-sans-serif, system-ui, sans-serif;
+  --sh-font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-width: 280px;
+  min-height: 100%;
+  background: transparent;
+  color: var(--sh-ink);
+  font-family: var(--sh-font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  padding: 1px;
+}
+
+.sh-widget {
+  width: 100%;
+  max-width: 400px;
+  min-height: 596px;
+  margin: 0 auto;
+  padding: 28px;
+  overflow: hidden;
+  border: 1px solid var(--sh-hairline);
+  border-radius: 2px;
+  background: var(--sh-panel);
+}
+
+.sh-widget-label,
+.sh-widget-countries h2 {
+  margin: 0;
+  color: var(--sh-muted);
+  font-family: var(--sh-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.sh-widget-total-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.sh-widget-total {
+  font-size: 46px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.sh-widget-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--sh-muted);
+  font-family: var(--sh-font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sh-widget-live i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--sh-success);
+}
+
+.sh-widget-chart {
+  margin-top: 28px;
+}
+
+.sh-widget-bars {
+  display: grid;
+  grid-template-columns: repeat(60, minmax(2px, 1fr));
+  align-items: end;
+  height: 168px;
+  gap: 2px;
+  border-bottom: 1px solid var(--sh-hairline);
+}
+
+.sh-widget-bar {
+  width: 100%;
+  min-height: 3px;
+  height: var(--bar-height);
+  background: var(--sh-forest);
+}
+
+.sh-widget-bar.is-empty {
+  height: 0;
+  min-height: 0;
+}
+
+.sh-widget-axis {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  margin-top: 8px;
+  color: var(--sh-muted);
+  font-family: var(--sh-font-mono);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.sh-widget-axis span {
+  text-align: center;
+}
+
+.sh-widget-axis span:first-child {
+  text-align: left;
+}
+
+.sh-widget-axis span:last-child {
+  text-align: right;
+}
+
+.sh-widget-countries {
+  margin-top: 36px;
+}
+
+.sh-widget-countries h2 {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--sh-hairline);
+}
+
+.sh-widget-countries ol {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sh-widget-countries li {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+  font-size: 14px;
+}
+
+.sh-widget-country-code {
+  color: var(--sh-muted);
+  font-family: var(--sh-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+.sh-widget-country-name {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sh-widget-countries strong {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.sh-widget-empty {
+  margin: 16px 0 0;
+  color: var(--sh-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.sh-widget-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 28px;
+  padding-top: 16px;
+  border-top: 1px solid var(--sh-hairline);
+  color: var(--sh-muted);
+  font-family: var(--sh-font-mono);
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.sh-widget-footer a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.sh-widget-footer a:hover {
+  color: var(--sh-ink);
+}
+
+.sh-widget-footer img {
+  display: block;
+  border-radius: 2px;
+}
+
+*:focus-visible {
+  outline: 2px solid #e78468;
+  outline-offset: 2px;
+}
+
+@media (max-width: 360px) {
+  .sh-widget {
+    min-height: 560px;
+    padding: 22px;
+  }
+
+  .sh-widget-bars {
+    height: 148px;
+    gap: 1px;
+  }
+
+  .sh-widget-countries {
+    margin-top: 30px;
+  }
+
+  .sh-widget-footer {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+}
