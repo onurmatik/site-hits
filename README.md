@@ -77,7 +77,7 @@ Copy `.env.example` and supply real secrets. Important details:
 
 - Use an independent `SITEHITS_HASH_SECRET`; changing it breaks hash continuity for that day.
 - Set `SITEHITS_TRUST_PROXY_HEADERS=true` only when the reverse proxy overwrites untrusted forwarding headers.
-- Mount a MaxMind GeoLite2 Country database and set `SITEHITS_GEOIP_DB_PATH`. Without it, collection continues and country remains `Unknown`.
+- Provision a MaxMind GeoLite2 Country database and set `SITEHITS_GEOIP_DB_PATH`. The checked-in deploy task installs and periodically runs `geoipupdate`; `manage.py check --deploy` fails if the configured database is missing, invalid, or the wrong MMDB type.
 - Run the collector over HTTPS. Configure the reverse proxy to limit request rates and cap `/api/events` bodies.
 - Schedule `python manage.py purge_old_events --days 365` daily.
 
