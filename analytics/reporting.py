@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from websites.models import TrackedSite
 
-from .models import AnalyticsEvent
+from .models import AnalyticsEvent, BotEvent
 
 
 VALID_PERIODS = {"today", "last24h", "last7d", "last30d", "last90d"}
@@ -25,6 +25,12 @@ BREAKDOWN_CONFIG = {
     "os": ("operating_system", Q(), True),
     "campaigns": ("utm_campaign", ~Q(utm_campaign=""), True),
     "events": ("event_name", Q(event_type="custom") & ~Q(event_name=""), False),
+}
+BOT_CATEGORY_LABELS = {
+    BotEvent.Category.ANSWER: "AI answers",
+    BotEvent.Category.INDEXING: "Indexing",
+    BotEvent.Category.TRAINING: "Training",
+    BotEvent.Category.OTHER: "Other",
 }
 
 
@@ -78,6 +84,15 @@ def selected_site(site_slug, sites=None):
 
 def event_queryset(site, start, end, sites=None):
     queryset = AnalyticsEvent.objects.filter(occurred_at__gte=start, occurred_at__lt=end)
+    if site:
+        return queryset.filter(site=site)
+    if sites is not None:
+        return queryset.filter(site__in=sites)
+    return queryset.filter(site__is_active=True)
+
+
+def bot_event_queryset(site, start, end, sites=None):
+    queryset = BotEvent.objects.filter(occurred_at__gte=start, occurred_at__lt=end)
     if site:
         return queryset.filter(site=site)
     if sites is not None:
@@ -247,6 +262,71 @@ def breakdown(site_slug, period, dimension, limit=8, sites=None):
             }
             for row in rows
         ],
+    }
+
+
+def bot_traffic(site_slug, period, limit=8, sites=None):
+    site = selected_site(site_slug, sites)
+    ranges = resolve_period(period, site)
+    queryset = bot_event_queryset(site, ranges.start, ranges.end, sites)
+    total = queryset.count()
+    category_counts = {
+        row["category"]: row["count"]
+        for row in queryset.values("category").annotate(count=Count("id"))
+    }
+    row_limit = max(1, min(limit, 50))
+    providers = list(
+        queryset.values("provider")
+        .annotate(count=Count("id"))
+        .order_by("-count", "provider")[:row_limit]
+    )
+    pages = list(
+        queryset.values("path", "status_code")
+        .annotate(count=Count("id"))
+        .order_by("-count", "path", "status_code")[:row_limit]
+    )
+
+    return {
+        "site": site_slug,
+        "period": period,
+        "timezone": str(ranges.timezone),
+        "total": total,
+        "categories": [
+            {
+                "key": key,
+                "label": label,
+                "count": category_counts.get(key, 0),
+                "percentage": (
+                    round(category_counts.get(key, 0) / total * 100, 1) if total else 0
+                ),
+            }
+            for key, label in BOT_CATEGORY_LABELS.items()
+        ],
+        "providers": [
+            {
+                "label": row["provider"],
+                "count": row["count"],
+                "percentage": round(row["count"] / total * 100, 1) if total else 0,
+            }
+            for row in providers
+        ],
+        "pages": [
+            {
+                "path": row["path"],
+                "status_code": row["status_code"],
+                "count": row["count"],
+                "percentage": round(row["count"] / total * 100, 1) if total else 0,
+            }
+            for row in pages
+        ],
+        "verification": {
+            "ip_verified": queryset.filter(
+                verification=BotEvent.Verification.IP_VERIFIED
+            ).count(),
+            "user_agent": queryset.filter(
+                verification=BotEvent.Verification.USER_AGENT
+            ).count(),
+        },
     }
 
 

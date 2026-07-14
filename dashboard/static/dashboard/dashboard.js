@@ -289,6 +289,70 @@
     });
   }
 
+  function renderBotProviderRows(data) {
+    var container = document.querySelector('[data-bot-breakdown="providers"] [data-rows]');
+    container.replaceChildren();
+    data.forEach(function (row) {
+      var item = document.createElement("div");
+      item.className = "flex min-h-12 items-center justify-between gap-4 px-3 transition-colors hover:bg-paper";
+      var label = document.createElement("span");
+      label.className = "truncate text-[13px] font-medium";
+      label.textContent = row.label;
+      var count = document.createElement("span");
+      count.className = "sh-tabular text-[13px] font-medium";
+      count.textContent = numberFormat.format(row.count);
+      item.append(label, count);
+      container.appendChild(item);
+    });
+  }
+
+  function renderBotPageRows(data) {
+    var container = document.querySelector('[data-bot-breakdown="pages"] [data-rows]');
+    container.replaceChildren();
+    data.forEach(function (row) {
+      var item = document.createElement("div");
+      item.className = "flex min-h-12 items-center justify-between gap-4 px-3 transition-colors hover:bg-paper";
+      var path = document.createElement("span");
+      path.className = "min-w-0 flex-1 truncate text-[13px] font-medium";
+      path.textContent = row.path;
+      var details = document.createElement("span");
+      details.className = "flex shrink-0 items-center gap-3";
+      var status = document.createElement("span");
+      status.className = "sh-mono text-[10px] " + (
+        row.status_code >= 400 ? "text-danger" : row.status_code >= 200 && row.status_code < 400 ? "text-success" : "text-muted"
+      );
+      status.textContent = row.status_code == null ? "Unknown" : String(row.status_code);
+      var count = document.createElement("span");
+      count.className = "sh-tabular text-[13px] font-medium";
+      count.textContent = numberFormat.format(row.count);
+      details.append(status, count);
+      item.append(path, details);
+      container.appendChild(item);
+    });
+  }
+
+  function renderBotTraffic(data) {
+    var empty = document.querySelector("[data-bot-empty]");
+    var content = document.querySelector("[data-bot-content]");
+    empty.hidden = data.total !== 0;
+    content.hidden = data.total === 0;
+    if (!data.total) return;
+
+    var total = document.querySelector('[data-bot-category="total"]');
+    total.querySelector("[data-value]").textContent = numberFormat.format(data.total);
+    data.categories.forEach(function (category) {
+      var card = document.querySelector('[data-bot-category="' + category.key + '"]');
+      card.querySelector("[data-value]").textContent = numberFormat.format(category.count);
+      card.querySelector("[data-share]").textContent = category.percentage.toFixed(1) + "%";
+    });
+    var verification = document.querySelector("[data-bot-verification]");
+    verification.textContent = data.verification.ip_verified
+      ? numberFormat.format(data.verification.ip_verified) + " IP verified · " + numberFormat.format(data.verification.user_agent) + " user-agent matched"
+      : numberFormat.format(data.verification.user_agent) + " user-agent matched";
+    renderBotProviderRows(data.providers);
+    renderBotPageRows(data.pages);
+  }
+
   function showError(error) {
     var target = document.getElementById("dashboard-error");
     target.textContent = error.message || "Analytics could not be loaded.";
@@ -305,5 +369,9 @@
       renderChart(responses[1]);
       dimensions.forEach(function (dimension, index) { renderRows(dimension, responses[index + 2].data); });
     })
+    .catch(showError);
+
+  api("bots")
+    .then(renderBotTraffic)
     .catch(showError);
 })();

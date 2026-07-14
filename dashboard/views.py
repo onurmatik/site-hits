@@ -78,6 +78,29 @@ def _tracking_snippet(site):
     )
 
 
+def _bot_tracking_settings(site):
+    return (
+        f"SITEHITS_BOT_ENDPOINT={settings.SITEHITS_BASE_URL}/api/bot-events\n"
+        f"SITEHITS_BOT_KEY={site.bot_key}"
+    )
+
+
+def _bot_tracking_agent_instruction(site):
+    endpoint = f"{settings.SITEHITS_BASE_URL}/api/bot-events"
+    return (
+        f"Add server-side SiteHits bot tracking to {site.name}'s backend middleware. "
+        "Keep the existing browser tracker unchanged. For each document or crawler-facing "
+        "request, send a best-effort POST after the response is known (or schedule it with "
+        "waitUntil when the runtime provides it); never delay the page response. Exclude APIs, "
+        "framework internals, and obvious static assets, but keep robots.txt, llms.txt, "
+        "llms-full.txt, sitemap XML files, and Markdown content trackable. POST to "
+        f"{endpoint} with Authorization: Bearer {site.bot_key} and Content-Type: "
+        "application/json. The JSON body must contain url and user_agent, and may contain "
+        "status_code and an ISO-8601 timestamp. Keep the bot key server-side and do not expose "
+        "it in browser code. Ignore collector failures so analytics can never break requests."
+    )
+
+
 def _site_for_details(user, details):
     candidate_sites = TrackedSite.objects.filter(is_active=True)
     if not user.is_superuser:
@@ -187,7 +210,12 @@ def onboarding_install(request, site_slug):
     return render(
         request,
         "onboarding/install.html",
-        {"site": site, "tracking_snippet": _tracking_snippet(site)},
+        {
+            "site": site,
+            "tracking_snippet": _tracking_snippet(site),
+            "bot_tracking_settings": _bot_tracking_settings(site),
+            "bot_tracking_agent_instruction": _bot_tracking_agent_instruction(site),
+        },
     )
 
 
@@ -217,7 +245,9 @@ def dashboard(request, site_slug):
     widget_url = ""
     widget_embed_code = ""
     widget_agent_instruction = ""
+    bot_setup_url = ""
     if selected:
+        bot_setup_url = reverse("onboarding-install", args=[selected.slug])
         widget_url = request.build_absolute_uri(
             reverse("site-widget", args=[selected.public_key])
         )
@@ -250,6 +280,7 @@ def dashboard(request, site_slug):
             "widget_url": widget_url,
             "widget_embed_code": widget_embed_code,
             "widget_agent_instruction": widget_agent_instruction,
+            "bot_setup_url": bot_setup_url,
             "breakdowns": [
                 ("pages", "Top pages", "Views"),
                 ("referrers", "Top referrers", "Views"),

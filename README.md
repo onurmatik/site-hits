@@ -8,8 +8,9 @@ SiteHits is a small, cookieless, multi-site analytics service for internal use. 
 - Approximate country, region, city, device, browser and operating-system labels derived while receiving the event.
 - Named custom events with at most 10 short scalar properties.
 - A pseudonymous daily visitor hash and a tab-session identifier.
+- Known server-side bot requests, classified by provider and purpose, with sanitized path and optional HTTP status.
 
-SiteHits never stores the raw IP address or raw user-agent. It drops arbitrary query strings, fragments and advertising click IDs. The visitor hash rotates daily and is scoped to one tracked site, so returning visitors across days and people crossing between domains are intentionally not linked.
+SiteHits never stores the raw IP address or raw user-agent. Bot user-agents are matched during ingestion and only the crawler/provider classification is retained. It drops arbitrary query strings, fragments and advertising click IDs. The visitor hash rotates daily and is scoped to one tracked site, so returning visitors across days and people crossing between domains are intentionally not linked.
 
 ## Local setup
 
@@ -59,12 +60,32 @@ Declarative event:
 
 The tracker captures initial pageviews and SPA navigation through `pushState`, `replaceState`, and `popstate`. It uses only `sessionStorage`; session IDs rotate after 30 minutes of inactivity.
 
+### Track bots from the server
+
+AI assistants and crawlers often skip JavaScript, so bot traffic uses a separate server-side collector. Every tracked site has a private `shb_...` bot key shown on its installation page. Keep that key in server environment variables and send a best-effort request from middleware after the response is known:
+
+```http
+POST /api/bot-events
+Authorization: Bearer shb_...
+Content-Type: application/json
+
+{
+  "url": "https://example.com/docs/get-started",
+  "user_agent": "GPTBot/1.2",
+  "status_code": 200,
+  "timestamp": "2026-07-14T12:00:00Z"
+}
+```
+
+Only known crawler tokens are stored. Human and unknown user-agents return `{"accepted": false}` and create no row. Do not await analytics when the runtime provides `waitUntil`; collector failures must never delay or break the page response. Obvious static assets and internal API routes can be excluded, while `robots.txt`, `llms.txt`, sitemap XML, and Markdown content should remain trackable.
+
 ## Reporting
 
 Authenticated users can access analytics for their own tracked sites. Superusers retain access to every site:
 
 - `GET /api/analytics/overview`
 - `GET /api/analytics/timeseries`
+- `GET /api/analytics/bots`
 - `GET /api/analytics/breakdowns/{pages|referrers|countries|regions|cities|devices|browsers|os|campaigns|events}`
 
 Common query parameters are `site=all|<slug>`, `period=today|last24h|last7d|last30d|last90d`, and `granularity=auto|hourly|daily` for time series.

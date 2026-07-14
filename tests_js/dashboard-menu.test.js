@@ -8,7 +8,7 @@ const source = readFileSync(
   "utf8",
 );
 
-function installDashboard() {
+function installDashboard(botResponse) {
   document.body.innerHTML = `
     <div id="dashboard-app" data-site="example" data-period="last7d" data-granularity="daily">
       <div id="site-menu">
@@ -38,6 +38,19 @@ function installDashboard() {
         <button id="copy-embed-widget-agent" type="button">Copy agent instruction</button>
         <p id="copy-embed-widget-status"></p>
       </dialog>
+      <section id="bot-traffic">
+        <span data-bot-verification>Known user-agent matches</span>
+        <div data-bot-empty hidden>No bot traffic</div>
+        <div data-bot-content>
+          <article data-bot-category="total"><strong data-value>—</strong><span data-share>Total</span></article>
+          <article data-bot-category="answer"><strong data-value>—</strong><span data-share>—</span></article>
+          <article data-bot-category="indexing"><strong data-value>—</strong><span data-share>—</span></article>
+          <article data-bot-category="training"><strong data-value>—</strong><span data-share>—</span></article>
+          <article data-bot-category="other"><strong data-value>—</strong><span data-share>—</span></article>
+          <article data-bot-breakdown="providers"><div data-rows></div></article>
+          <article data-bot-breakdown="pages"><div data-rows></div></article>
+        </div>
+      </section>
     </div>`;
   document.querySelectorAll("dialog").forEach((dialog) => {
     dialog.showModal = function () {
@@ -52,7 +65,12 @@ function installDashboard() {
     configurable: true,
     value: { writeText: vi.fn(() => Promise.resolve()) },
   });
-  global.fetch = vi.fn(() => new Promise(() => {}));
+  global.fetch = vi.fn((url) => {
+    if (botResponse && url.startsWith("/api/analytics/bots?")) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(botResponse) });
+    }
+    return new Promise(() => {});
+  });
   window.eval(source);
 }
 
@@ -83,6 +101,7 @@ describe("dashboard site menu", () => {
 
     expect(urls.some((url) => url.startsWith("/api/analytics/breakdowns/regions?"))).toBe(true);
     expect(urls.some((url) => url.startsWith("/api/analytics/breakdowns/cities?"))).toBe(true);
+    expect(urls.some((url) => url.startsWith("/api/analytics/bots?"))).toBe(true);
   });
 
   test("supports arrow-key entry and Escape", () => {
@@ -152,5 +171,35 @@ describe("dashboard site menu", () => {
 
     expect(dialog.open).toBe(false);
     expect(document.activeElement).toBe(trigger);
+  });
+});
+
+describe("dashboard bot traffic", () => {
+  test("renders bot categories, providers, paths, status, and verification", async () => {
+    installDashboard({
+      total: 3,
+      categories: [
+        { key: "answer", count: 1, percentage: 33.3 },
+        { key: "indexing", count: 0, percentage: 0 },
+        { key: "training", count: 2, percentage: 66.7 },
+        { key: "other", count: 0, percentage: 0 },
+      ],
+      providers: [{ label: "OpenAI", count: 3, percentage: 100 }],
+      pages: [{ path: "/missing", status_code: 404, count: 2, percentage: 66.7 }],
+      verification: { ip_verified: 0, user_agent: 3 },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await vi.waitFor(() => {
+      expect(document.querySelector('[data-bot-category="total"] [data-value]').textContent).toBe("3");
+    });
+    expect(document.querySelector('[data-bot-category="training"] [data-share]').textContent).toBe("66.7%");
+    expect(document.querySelector('[data-bot-breakdown="providers"] [data-rows]').textContent).toContain("OpenAI");
+    expect(document.querySelector('[data-bot-breakdown="pages"] [data-rows]').textContent).toContain("/missing");
+    expect(document.querySelector('[data-bot-breakdown="pages"] [data-rows]').textContent).toContain("404");
+    expect(document.querySelector("[data-bot-verification]").textContent).toBe("3 user-agent matched");
+    expect(document.querySelector("[data-bot-empty]").hidden).toBe(true);
   });
 });

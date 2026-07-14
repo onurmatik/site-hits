@@ -5,14 +5,15 @@ from django.utils.cache import patch_vary_headers
 
 class EventCorsMiddleware:
     event_path = "/api/events"
+    collection_paths = {event_path, "/api/bot-events"}
 
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        if request.path == self.event_path:
+        if request.path in self.collection_paths:
             origin = request.headers.get("Origin", "")
-            if request.method == "OPTIONS":
+            if request.path == self.event_path and request.method == "OPTIONS":
                 response = HttpResponse(status=204)
                 if origin:
                     response["Access-Control-Allow-Origin"] = origin
@@ -29,7 +30,7 @@ class EventCorsMiddleware:
                 )
             else:
                 response = self.get_response(request)
-            if origin and response.status_code == 202:
+            if request.path == self.event_path and origin and response.status_code == 202:
                 response["Access-Control-Allow-Origin"] = origin
                 patch_vary_headers(response, ["Origin"])
             return response

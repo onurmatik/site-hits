@@ -62,3 +62,50 @@ class AnalyticsEvent(models.Model):
     def __str__(self):
         label = self.event_name or self.event_type
         return f"{self.site}: {label} at {self.occurred_at.isoformat()}"
+
+
+class BotEvent(models.Model):
+    class Category(models.TextChoices):
+        ANSWER = "answer", "AI answer"
+        INDEXING = "indexing", "Indexing"
+        TRAINING = "training", "Training"
+        OTHER = "other", "Other"
+
+    class Verification(models.TextChoices):
+        USER_AGENT = "user_agent", "User-agent match"
+        IP_VERIFIED = "ip_verified", "IP verified"
+
+    site = models.ForeignKey(
+        TrackedSite,
+        on_delete=models.CASCADE,
+        related_name="bot_events",
+    )
+    occurred_at = models.DateTimeField()
+    received_at = models.DateTimeField(auto_now_add=True)
+    path = models.CharField(max_length=2048)
+    status_code = models.PositiveSmallIntegerField(null=True, blank=True)
+    provider = models.CharField(max_length=64)
+    crawler = models.CharField(max_length=64)
+    category = models.CharField(max_length=16, choices=Category.choices)
+    verification = models.CharField(
+        max_length=16,
+        choices=Verification.choices,
+        default=Verification.USER_AGENT,
+    )
+
+    class Meta:
+        ordering = ["-occurred_at", "-id"]
+        indexes = [
+            models.Index(fields=["site", "occurred_at"], name="bot_site_time_idx"),
+            models.Index(
+                fields=["site", "category", "occurred_at"],
+                name="bot_site_category_idx",
+            ),
+            models.Index(
+                fields=["site", "provider", "occurred_at"],
+                name="bot_site_provider_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.site}: {self.crawler} requested {self.path}"

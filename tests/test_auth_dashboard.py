@@ -1,5 +1,6 @@
 import pytest
 from django.contrib.auth import get_user_model
+from django.urls import reverse
 
 
 @pytest.mark.django_db
@@ -17,7 +18,9 @@ def test_analytics_api_requires_authentication_and_scopes_regular_users(client, 
     tracked_site.owner = regular
     tracked_site.save(update_fields=["owner"])
     own_allowed = client.get(f"/api/analytics/overview?site={tracked_site.slug}")
+    own_bots = client.get(f"/api/analytics/bots?site={tracked_site.slug}")
     assert own_allowed.status_code == 200
+    assert own_bots.status_code == 200
 
     client.force_login(superuser)
     allowed = client.get("/api/analytics/overview")
@@ -39,8 +42,12 @@ def test_dashboard_login_and_site_routes(client, tracked_site, superuser):
     assert b'data-breakdown="regions"' in all_sites.content
     assert b'data-breakdown="cities"' in all_sites.content
     assert b'data-breakdown="events"' in all_sites.content
+    assert b'id="bot-traffic"' in all_sites.content
+    assert b'data-bot-category="answer"' in all_sites.content
     assert site.status_code == 200
     assert tracked_site.name.encode() in site.content
+    assert b"Server setup" in site.content
+    assert reverse("onboarding-install", args=[tracked_site.slug]).encode() in site.content
 
 
 @pytest.mark.django_db
@@ -63,7 +70,7 @@ def test_regular_user_dashboard_only_exposes_owned_sites(client, tracked_site):
     assert forbidden.status_code == 404
     assert aggregate.status_code == 200
     assert tracked_site.name.encode() in aggregate.content
-    assert other.name.encode() not in aggregate.content
+    assert reverse("dashboard-site", args=[other.slug]).encode() not in aggregate.content
 
 
 @pytest.mark.django_db

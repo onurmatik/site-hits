@@ -10,6 +10,10 @@ def generate_public_key():
     return f"sh_{secrets.token_urlsafe(18)}"
 
 
+def generate_bot_key():
+    return f"shb_{secrets.token_urlsafe(24)}"
+
+
 class TrackedSite(models.Model):
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -24,6 +28,12 @@ class TrackedSite(models.Model):
         max_length=64,
         unique=True,
         default=generate_public_key,
+        editable=False,
+    )
+    bot_key = models.CharField(
+        max_length=64,
+        unique=True,
+        default=generate_bot_key,
         editable=False,
     )
     allowed_domains = models.JSONField(

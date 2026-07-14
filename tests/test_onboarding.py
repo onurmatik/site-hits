@@ -78,7 +78,12 @@ def test_onboarding_requires_authentication_and_creates_owned_site(client, super
     assert reverse("dashboard-site", args=[site.slug]).encode() in install.content
     assert b"Instruction for your agent" in install.content
     assert b'id="agent-instruction"' in install.content
-    assert install.content.count(b"data-copy-target=") == 2
+    assert b"Server-side bot tracking" in install.content
+    assert b"https://stats.example/api/bot-events" in install.content
+    assert site.bot_key.encode() in install.content
+    assert b'id="bot-tracking-settings"' in install.content
+    assert b'id="bot-agent-instruction"' in install.content
+    assert install.content.count(b"data-copy-target=") == 4
     assert b'id="copy-status"' in install.content
 
 

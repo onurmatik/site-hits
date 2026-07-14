@@ -136,6 +136,66 @@
       <div class="relative h-[300px]"><canvas id="traffic-chart"></canvas></div>
     </section>
 
+    <section id="bot-traffic" class="space-y-4 md:space-y-6" aria-labelledby="bot-traffic-title">
+      <header class="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+        <div>
+          <p class="sh-mono mb-1 text-muted">Server-side</p>
+          <h2 id="bot-traffic-title" class="text-xl font-semibold tracking-tight">Bot traffic</h2>
+        </div>
+        <div class="flex items-center gap-4">
+          <span data-bot-verification class="sh-mono text-[10px] text-muted">Known user-agent matches</span>
+          {% if selected_site %}
+            <a href="{{ bot_setup_url }}#bot-tracking-settings"
+               class="grid min-h-10 place-items-center rounded-[2px] border border-ink/15 bg-white px-4 text-sm font-medium transition-colors hover:border-forest hover:text-forest">Server setup</a>
+          {% endif %}
+        </div>
+      </header>
+
+      <div data-bot-empty hidden class="sh-panel p-6 md:p-8">
+        <p class="font-medium">No known crawler requests in this period.</p>
+        <p class="mt-2 max-w-2xl text-sm leading-6 text-muted">AI assistants and search crawlers usually skip browser JavaScript. Add the server-side collector to see which pages they request.</p>
+        {% if selected_site %}
+          <a href="{{ bot_setup_url }}#bot-tracking-settings" class="mt-5 inline-grid min-h-10 place-items-center rounded-[2px] bg-forest px-4 text-sm font-medium text-white transition-colors hover:bg-ink">Set up bot tracking</a>
+        {% endif %}
+      </div>
+
+      <div data-bot-content class="space-y-4 md:space-y-6">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5" aria-label="Bot traffic categories">
+          <article class="sh-panel relative overflow-hidden p-5" data-bot-category="total">
+            <span class="absolute inset-x-0 top-0 h-0.5 bg-forest"></span>
+            <p class="sh-mono mb-3 text-muted">Bot requests</p><div class="flex items-baseline justify-between gap-3"><strong data-value class="sh-tabular text-3xl font-semibold">—</strong><span data-share class="text-xs text-muted">Total</span></div>
+          </article>
+          <article class="sh-panel p-5" data-bot-category="answer">
+            <p class="sh-mono mb-3 text-muted">AI answers</p><div class="flex items-baseline justify-between gap-3"><strong data-value class="sh-tabular text-3xl font-semibold">—</strong><span data-share class="text-xs text-muted">—</span></div>
+          </article>
+          <article class="sh-panel p-5" data-bot-category="indexing">
+            <p class="sh-mono mb-3 text-muted">Indexing</p><div class="flex items-baseline justify-between gap-3"><strong data-value class="sh-tabular text-3xl font-semibold">—</strong><span data-share class="text-xs text-muted">—</span></div>
+          </article>
+          <article class="sh-panel p-5" data-bot-category="training">
+            <p class="sh-mono mb-3 text-muted">Training</p><div class="flex items-baseline justify-between gap-3"><strong data-value class="sh-tabular text-3xl font-semibold">—</strong><span data-share class="text-xs text-muted">—</span></div>
+          </article>
+          <article class="sh-panel p-5" data-bot-category="other">
+            <p class="sh-mono mb-3 text-muted">Other</p><div class="flex items-baseline justify-between gap-3"><strong data-value class="sh-tabular text-3xl font-semibold">—</strong><span data-share class="text-xs text-muted">—</span></div>
+          </article>
+        </div>
+
+        <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <article class="sh-panel" data-bot-breakdown="providers">
+            <header class="flex items-center justify-between border-b border-ink/15 px-5 py-4">
+              <h3 class="sh-mono font-semibold text-ink">Crawler providers</h3><span class="sh-mono text-[10px] text-muted">Requests</span>
+            </header>
+            <div data-rows class="min-h-36 p-2"><div class="space-y-2 p-3"><div class="sh-skeleton h-8"></div><div class="sh-skeleton h-8 w-4/5"></div><div class="sh-skeleton h-8 w-3/5"></div></div></div>
+          </article>
+          <article class="sh-panel" data-bot-breakdown="pages">
+            <header class="flex items-center justify-between border-b border-ink/15 px-5 py-4">
+              <h3 class="sh-mono font-semibold text-ink">Requested paths</h3><span class="sh-mono text-[10px] text-muted">Status · requests</span>
+            </header>
+            <div data-rows class="min-h-36 p-2"><div class="space-y-2 p-3"><div class="sh-skeleton h-8"></div><div class="sh-skeleton h-8 w-4/5"></div><div class="sh-skeleton h-8 w-3/5"></div></div></div>
+          </article>
+        </div>
+      </div>
+    </section>
+
     <section class="grid grid-cols-1 gap-6 lg:grid-cols-2" aria-label="Traffic breakdowns">
       {% for dimension, title, value_label in breakdowns %}
       <article class="sh-panel" data-breakdown="{{ dimension }}">

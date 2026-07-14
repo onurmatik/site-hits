@@ -5,9 +5,14 @@ from ninja.security import django_auth
 
 from websites.models import TrackedSite
 
+from .bot_ingestion import (
+    BotAuthenticationError,
+    BotIngestionError,
+    ingest_bot_event,
+)
 from .ingestion import IngestionError, ingest_event
-from .reporting import breakdown, overview, timeseries
-from .schemas import AcceptedResponse, ErrorResponse, EventPayload
+from .reporting import bot_traffic, breakdown, overview, timeseries
+from .schemas import AcceptedResponse, BotEventPayload, ErrorResponse, EventPayload
 
 
 api = NinjaAPI(title="SiteHits API", version="1.0.0")
@@ -31,6 +36,22 @@ def collect_event(request, payload: EventPayload):
         return Status(400, {"error": {"message": str(exc)}})
     response = JsonResponse({"accepted": True}, status=202)
     return response
+
+
+@api.post(
+    "/bot-events",
+    auth=None,
+    response={202: AcceptedResponse, 400: ErrorResponse, 401: ErrorResponse},
+    summary="Collect a server-side bot request",
+)
+def collect_bot_event(request, payload: BotEventPayload):
+    try:
+        event = ingest_bot_event(request, payload)
+    except BotAuthenticationError as exc:
+        return Status(401, {"error": {"message": str(exc)}})
+    except BotIngestionError as exc:
+        return Status(400, {"error": {"message": str(exc)}})
+    return Status(202, {"accepted": event is not None})
 
 
 @api.get("/analytics/overview", auth=django_auth, summary="Get aggregate metrics")
@@ -68,5 +89,17 @@ def analytics_breakdown(
 ):
     try:
         return breakdown(site, period, dimension, limit, visible_sites(request))
+    except ValueError as exc:
+        raise HttpError(400, str(exc)) from exc
+
+
+@api.get(
+    "/analytics/bots",
+    auth=django_auth,
+    summary="Get server-side bot traffic analytics",
+)
+def analytics_bots(request, site: str = "all", period: str = "last7d", limit: int = 8):
+    try:
+        return bot_traffic(site, period, limit, visible_sites(request))
     except ValueError as exc:
         raise HttpError(400, str(exc)) from exc

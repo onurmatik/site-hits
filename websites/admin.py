@@ -9,12 +9,31 @@ from .models import TrackedSite
 class TrackedSiteAdmin(admin.ModelAdmin):
     list_display = ("name", "owner", "slug", "domain_list", "timezone", "is_active", "updated_at")
     list_filter = ("is_active", "timezone")
-    search_fields = ("name", "slug", "public_key")
+    search_fields = ("name", "slug", "public_key", "bot_key")
     prepopulated_fields = {"slug": ("name",)}
-    readonly_fields = ("public_key", "tracking_snippet", "created_at", "updated_at")
+    readonly_fields = (
+        "public_key",
+        "tracking_snippet",
+        "bot_key",
+        "bot_tracking_settings",
+        "created_at",
+        "updated_at",
+    )
     fieldsets = (
         (None, {"fields": ("name", "owner", "slug", "is_active")}),
-        ("Tracking", {"fields": ("allowed_domains", "timezone", "public_key", "tracking_snippet")}),
+        (
+            "Tracking",
+            {
+                "fields": (
+                    "allowed_domains",
+                    "timezone",
+                    "public_key",
+                    "tracking_snippet",
+                    "bot_key",
+                    "bot_tracking_settings",
+                )
+            },
+        ),
         ("Timestamps", {"fields": ("created_at", "updated_at")}),
     )
 
@@ -33,3 +52,13 @@ class TrackedSiteAdmin(admin.ModelAdmin):
             f'data-api-url="{base_url}/api/events"></script>'
         )
         return format_html("<code style='white-space:pre-wrap'>{}</code>", snippet)
+
+    @admin.display(description="Server-side bot settings")
+    def bot_tracking_settings(self, obj):
+        if not obj.pk:
+            return "Save the site to generate its bot tracking key."
+        settings_text = (
+            f"SITEHITS_BOT_ENDPOINT={settings.SITEHITS_BASE_URL}/api/bot-events\n"
+            f"SITEHITS_BOT_KEY={obj.bot_key}"
+        )
+        return format_html("<code style='white-space:pre-wrap'>{}</code>", settings_text)

@@ -4,8 +4,8 @@ import pytest
 from django.urls import reverse
 from django.utils import timezone
 
-from analytics.models import AnalyticsEvent
-from analytics.reporting import breakdown, last_hour_widget, overview, timeseries
+from analytics.models import AnalyticsEvent, BotEvent
+from analytics.reporting import bot_traffic, breakdown, last_hour_widget, overview, timeseries
 from websites.models import TrackedSite
 
 
@@ -32,6 +32,27 @@ def make_event(site, *, minutes, session, visitor, path="/", event_type="pagevie
         session_id=session,
         path=path,
         **defaults,
+    )
+
+
+def make_bot_event(
+    site,
+    *,
+    minutes,
+    provider,
+    crawler,
+    category,
+    path="/",
+    status_code=200,
+):
+    return BotEvent.objects.create(
+        site=site,
+        occurred_at=timezone.now() - timedelta(minutes=minutes),
+        provider=provider,
+        crawler=crawler,
+        category=category,
+        path=path,
+        status_code=status_code,
     )
 
 
@@ -148,6 +169,58 @@ def test_city_breakdown_groups_missing_city_as_unknown(tracked_site):
     assert result["data"] == [
         {"label": "Unknown", "count": 2, "percentage": 100.0}
     ]
+
+
+@pytest.mark.django_db
+def test_bot_traffic_reports_categories_providers_paths_and_scope(tracked_site):
+    other = TrackedSite.objects.create(
+        name="Other",
+        slug="other-bots",
+        allowed_domains=["other.example"],
+    )
+    make_bot_event(
+        tracked_site,
+        minutes=30,
+        provider="OpenAI",
+        crawler="ChatGPT-User",
+        category="answer",
+        path="/pricing",
+    )
+    make_bot_event(
+        tracked_site,
+        minutes=20,
+        provider="OpenAI",
+        crawler="GPTBot",
+        category="training",
+        path="/missing",
+        status_code=404,
+    )
+    make_bot_event(
+        other,
+        minutes=10,
+        provider="Google",
+        crawler="Googlebot",
+        category="indexing",
+    )
+
+    result = bot_traffic(tracked_site.slug, "last7d")
+
+    assert result["total"] == 2
+    assert {row["key"]: row["count"] for row in result["categories"]} == {
+        "answer": 1,
+        "indexing": 0,
+        "training": 1,
+        "other": 0,
+    }
+    assert result["providers"] == [
+        {"label": "OpenAI", "count": 2, "percentage": 100.0}
+    ]
+    assert any(
+        row["path"] == "/missing" and row["status_code"] == 404
+        for row in result["pages"]
+    )
+    assert result["verification"] == {"ip_verified": 0, "user_agent": 2}
+    assert bot_traffic("all", "last7d")["total"] == 3
 
 
 @pytest.mark.django_db
