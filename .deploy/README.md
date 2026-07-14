@@ -23,9 +23,9 @@ DEFAULT_FROM_EMAIL=SiteHits <hello@sitehits.io>
 
 The SES region must be the region where the `sitehits.io` identity is verified.
 
-Country analytics use the MaxMind GeoLite2 Country database. Create a MaxMind
-license key and add these deployment-only values to the ignored local
-`.env-prod` file:
+Country, region, and city analytics use the MaxMind GeoLite2 City database.
+Create a MaxMind license key and add these deployment-only values to the
+ignored local `.env-prod` file:
 
 ```text
 MAXMIND_ACCOUNT_ID=...
@@ -33,7 +33,7 @@ MAXMIND_LICENSE_KEY=...
 ```
 
 The deploy task installs `geoipupdate`, writes its root-only configuration,
-downloads `/var/lib/GeoIP/GeoLite2-Country.mmdb`, enables the packaged periodic
+downloads `/var/lib/GeoIP/GeoLite2-City.mmdb`, enables the packaged periodic
 update timer, and sets `SITEHITS_GEOIP_DB_PATH` in the preserved runtime env.
-Deployment stops if the database cannot be downloaded or read, so country
+Deployment stops if the database cannot be downloaded or read, so location
 analytics cannot silently fall back to `Unknown` in production.

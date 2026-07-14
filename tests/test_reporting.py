@@ -15,6 +15,9 @@ def make_event(site, *, minutes, session, visitor, path="/", event_type="pagevie
         "referrer_domain": "",
         "country_name": "Türkiye",
         "country_code": "TR",
+        "region_name": "İstanbul",
+        "region_code": "34",
+        "city_name": "İstanbul",
         "device": "desktop",
         "browser": "Chrome",
         "operating_system": "macOS",
@@ -105,6 +108,8 @@ def test_timeseries_and_every_breakdown(analytics_data):
         "pages": "/pricing",
         "referrers": "google.com",
         "countries": "Türkiye",
+        "regions": "İstanbul, Türkiye",
+        "cities": "İstanbul, Türkiye",
         "devices": "desktop",
         "browsers": "Chrome",
         "os": "macOS",
@@ -115,6 +120,34 @@ def test_timeseries_and_every_breakdown(analytics_data):
         result = breakdown(site.slug, "last7d", dimension)
         assert result["data"]
         assert any(row["label"] == top_label for row in result["data"])
+
+
+@pytest.mark.django_db
+def test_city_breakdown_groups_missing_city_as_unknown(tracked_site):
+    make_event(
+        tracked_site,
+        minutes=10,
+        session="unknown-city-1",
+        visitor="unknown-city-visitor-1",
+        city_name="",
+        region_name="",
+    )
+    make_event(
+        tracked_site,
+        minutes=5,
+        session="unknown-city-2",
+        visitor="unknown-city-visitor-2",
+        country_code="DE",
+        country_name="Germany",
+        city_name="",
+        region_name="",
+    )
+
+    result = breakdown(tracked_site.slug, "last7d", "cities")
+
+    assert result["data"] == [
+        {"label": "Unknown", "count": 2, "percentage": 100.0}
+    ]
 
 
 @pytest.mark.django_db

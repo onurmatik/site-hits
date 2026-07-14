@@ -295,7 +295,7 @@
     target.classList.remove("hidden");
   }
 
-  var dimensions = ["pages", "referrers", "countries", "devices", "campaigns", "events"];
+  var dimensions = ["pages", "referrers", "countries", "regions", "cities", "devices", "campaigns", "events"];
   Promise.all([
     api("overview"),
     api("timeseries", { granularity: granularity }),

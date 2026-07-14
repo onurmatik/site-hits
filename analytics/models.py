@@ -27,6 +27,9 @@ class AnalyticsEvent(models.Model):
 
     country_code = models.CharField(max_length=2, blank=True)
     country_name = models.CharField(max_length=100, blank=True)
+    region_code = models.CharField(max_length=3, blank=True)
+    region_name = models.CharField(max_length=100, blank=True)
+    city_name = models.CharField(max_length=100, blank=True)
     device = models.CharField(max_length=32, blank=True)
     browser = models.CharField(max_length=100, blank=True)
     operating_system = models.CharField(max_length=100, blank=True)
@@ -59,4 +62,3 @@ class AnalyticsEvent(models.Model):
     def __str__(self):
         label = self.event_name or self.event_type
         return f"{self.site}: {label} at {self.occurred_at.isoformat()}"
-

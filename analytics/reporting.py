@@ -3,7 +3,7 @@ from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
-from django.db.models import Case, CharField, Count, Max, Min, Q, Value, When
+from django.db.models import Case, CharField, Count, F, Max, Min, Q, Value, When
 from django.db.models.functions import Cast, Concat, TruncDay, TruncHour, TruncMinute
 from django.utils import timezone
 
@@ -18,6 +18,8 @@ BREAKDOWN_CONFIG = {
     "pages": ("path", Q(event_type="pageview"), False),
     "referrers": ("referrer_domain", Q(event_type="pageview"), False),
     "countries": ("country_name", Q(), True),
+    "regions": ("region_name", Q(), True),
+    "cities": ("city_name", Q(), True),
     "devices": ("device", Q(), True),
     "browsers": ("browser", Q(), True),
     "os": ("operating_system", Q(), True),
@@ -179,11 +181,47 @@ def breakdown(site_slug, period, dimension, limit=8, sites=None):
     site = selected_site(site_slug, sites)
     ranges = resolve_period(period, site)
     field, filters, distinct_sessions = BREAKDOWN_CONFIG[dimension]
-    label = Case(
-        When(**{field: ""}, then=Value("Direct" if dimension == "referrers" else "Unknown")),
-        default=field,
-        output_field=CharField(),
-    )
+    empty_label = "Direct" if dimension == "referrers" else "Unknown"
+    if dimension == "regions":
+        label = Case(
+            When(region_name="", then=Value(empty_label)),
+            default=Concat(
+                "region_name",
+                Case(
+                    When(country_name="", then=Value("")),
+                    default=Concat(Value(", "), "country_name"),
+                    output_field=CharField(),
+                ),
+            ),
+            output_field=CharField(),
+        )
+    elif dimension == "cities":
+        label = Case(
+            When(city_name="", then=Value(empty_label)),
+            default=Concat(
+                "city_name",
+                Case(
+                    When(
+                        Q(region_name="") | Q(region_name=F("city_name")),
+                        then=Value(""),
+                    ),
+                    default=Concat(Value(", "), "region_name"),
+                    output_field=CharField(),
+                ),
+                Case(
+                    When(country_name="", then=Value("")),
+                    default=Concat(Value(", "), "country_name"),
+                    output_field=CharField(),
+                ),
+            ),
+            output_field=CharField(),
+        )
+    else:
+        label = Case(
+            When(**{field: ""}, then=Value(empty_label)),
+            default=field,
+            output_field=CharField(),
+        )
     queryset = event_queryset(site, ranges.start, ranges.end, sites).filter(filters)
     counter = (
         Count(scoped_identifier("session_id"), distinct=True)

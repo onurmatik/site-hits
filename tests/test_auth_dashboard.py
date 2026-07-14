@@ -36,6 +36,8 @@ def test_dashboard_login_and_site_routes(client, tracked_site, superuser):
     assert all_sites.status_code == 200
     assert b"All sites" in all_sites.content
     assert b'data-breakdown="pages"' in all_sites.content
+    assert b'data-breakdown="regions"' in all_sites.content
+    assert b'data-breakdown="cities"' in all_sites.content
     assert b'data-breakdown="events"' in all_sites.content
     assert site.status_code == 200
     assert tracked_site.name.encode() in site.content

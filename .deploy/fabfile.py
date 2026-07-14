@@ -37,7 +37,7 @@ APP_USER = os.environ.get("APP_USER", "ubuntu")
 PROJECT_DIR = f"/srv/apps/{PROJECT_NAME}"
 VENV_DIR = f"{PROJECT_DIR}/venv"
 REPO_URL = f"https://github.com/{GITHUB_REPO}.git"
-GEOIP_DB_PATH = "/var/lib/GeoIP/GeoLite2-Country.mmdb"
+GEOIP_DB_PATH = "/var/lib/GeoIP/GeoLite2-City.mmdb"
 GEOIP_CONFIG_PATH = "/etc/GeoIP.conf"
 
 
@@ -114,7 +114,7 @@ def ensure_geoip_database(connection: Connection) -> None:
         config = (
             f"AccountID {account_id}\n"
             f"LicenseKey {license_key}\n"
-            "EditionIDs GeoLite2-Country\n"
+            "EditionIDs GeoLite2-City\n"
             "DatabaseDirectory /var/lib/GeoIP\n"
         )
         temporary_path = connection.run("mktemp", hide=True).stdout.strip()

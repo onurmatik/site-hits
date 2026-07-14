@@ -8,10 +8,10 @@ from .models import AnalyticsEvent
 from .privacy import (
     EVENT_NAME_PATTERN,
     client_ip,
-    country_for_ip,
     daily_visitor_hash,
     device_details,
     hostname_allowed,
+    location_for_ip,
     origin_hostname,
     sanitized_page,
     sanitized_properties,
@@ -60,7 +60,7 @@ def ingest_event(request, payload):
         return None
 
     ip_address = client_ip(request)
-    country_code, country_name = country_for_ip(ip_address)
+    location = location_for_ip(ip_address)
     referrer_domain, referrer_path = sanitized_referrer(payload.referrer)
     properties = sanitized_properties(payload.properties)
 
@@ -74,8 +74,7 @@ def ingest_event(request, payload):
         path=path,
         referrer_domain=referrer_domain,
         referrer_path=referrer_path,
-        country_code=country_code,
-        country_name=country_name,
+        **location,
         device=device["device"],
         browser=device["browser"],
         operating_system=device["operating_system"],
@@ -88,4 +87,3 @@ def ingest_event(request, payload):
         properties=properties,
         **utm,
     )
-

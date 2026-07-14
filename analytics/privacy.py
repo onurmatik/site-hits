@@ -108,15 +108,32 @@ def geoip_reader(path):
     return Reader(path) if path else None
 
 
-def country_for_ip(ip_address):
+def empty_location():
+    return {
+        "country_code": "",
+        "country_name": "",
+        "region_code": "",
+        "region_name": "",
+        "city_name": "",
+    }
+
+
+def location_for_ip(ip_address):
     path = settings.SITEHITS_GEOIP_DB_PATH
     if not path:
-        return "", ""
+        return empty_location()
     try:
-        response = geoip_reader(path).country(ip_address)
-        return (response.country.iso_code or "")[:2], (response.country.name or "")[:100]
+        response = geoip_reader(path).city(ip_address)
+        region = response.subdivisions.most_specific
+        return {
+            "country_code": (response.country.iso_code or "")[:2],
+            "country_name": (response.country.name or "")[:100],
+            "region_code": (region.iso_code or "")[:3],
+            "region_name": (region.name or "")[:100],
+            "city_name": (response.city.name or "")[:100],
+        }
     except Exception:
-        return "", ""
+        return empty_location()
 
 
 def sanitized_properties(properties):

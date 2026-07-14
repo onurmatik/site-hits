@@ -5,7 +5,7 @@ SiteHits is a small, cookieless, multi-site analytics service for internal use. 
 ## What it collects
 
 - Page path, referrer hostname/path, UTM campaign fields, language, timezone, viewport and screen dimensions.
-- Coarse country, device, browser and operating-system labels derived while receiving the event.
+- Approximate country, region, city, device, browser and operating-system labels derived while receiving the event.
 - Named custom events with at most 10 short scalar properties.
 - A pseudonymous daily visitor hash and a tab-session identifier.
 
@@ -65,7 +65,7 @@ Authenticated users can access analytics for their own tracked sites. Superusers
 
 - `GET /api/analytics/overview`
 - `GET /api/analytics/timeseries`
-- `GET /api/analytics/breakdowns/{pages|referrers|countries|devices|browsers|os|campaigns|events}`
+- `GET /api/analytics/breakdowns/{pages|referrers|countries|regions|cities|devices|browsers|os|campaigns|events}`
 
 Common query parameters are `site=all|<slug>`, `period=today|last24h|last7d|last30d|last90d`, and `granularity=auto|hourly|daily` for time series.
 
@@ -77,7 +77,7 @@ Copy `.env.example` and supply real secrets. Important details:
 
 - Use an independent `SITEHITS_HASH_SECRET`; changing it breaks hash continuity for that day.
 - Set `SITEHITS_TRUST_PROXY_HEADERS=true` only when the reverse proxy overwrites untrusted forwarding headers.
-- Provision a MaxMind GeoLite2 Country database and set `SITEHITS_GEOIP_DB_PATH`. The checked-in deploy task installs and periodically runs `geoipupdate`; `manage.py check --deploy` fails if the configured database is missing, invalid, or the wrong MMDB type.
+- Provision a MaxMind GeoLite2 City database and set `SITEHITS_GEOIP_DB_PATH`. The checked-in deploy task installs and periodically runs `geoipupdate`; `manage.py check --deploy` fails if the configured database is missing, invalid, or the wrong MMDB type. Existing events are not location-backfilled because raw IP addresses are never stored.
 - Run the collector over HTTPS. Configure the reverse proxy to limit request rates and cap `/api/events` bodies.
 - Schedule `python manage.py purge_old_events --days 365` daily.
 

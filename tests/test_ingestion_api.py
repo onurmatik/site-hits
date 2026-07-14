@@ -1,7 +1,7 @@
 import json
+from unittest.mock import patch
 
 import pytest
-from django.urls import reverse
 from django.utils import timezone
 
 from analytics.models import AnalyticsEvent
@@ -28,14 +28,22 @@ def event_payload(site, **overrides):
 
 @pytest.mark.django_db
 def test_event_is_accepted_sanitized_and_cors_reflected(client, tracked_site):
-    response = client.post(
-        "/api/events",
-        data=json.dumps(event_payload(tracked_site)),
-        content_type="application/json",
-        HTTP_ORIGIN="https://example.com",
-        HTTP_USER_AGENT="Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/126.0 Safari/537.36",
-        REMOTE_ADDR="203.0.113.8",
-    )
+    location = {
+        "country_code": "TR",
+        "country_name": "Türkiye",
+        "region_code": "34",
+        "region_name": "İstanbul",
+        "city_name": "İstanbul",
+    }
+    with patch("analytics.ingestion.location_for_ip", return_value=location):
+        response = client.post(
+            "/api/events",
+            data=json.dumps(event_payload(tracked_site)),
+            content_type="application/json",
+            HTTP_ORIGIN="https://example.com",
+            HTTP_USER_AGENT="Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/126.0 Safari/537.36",
+            REMOTE_ADDR="203.0.113.8",
+        )
     assert response.status_code == 202
     assert response.json() == {"accepted": True}
     assert response["Access-Control-Allow-Origin"] == "https://example.com"
@@ -47,6 +55,9 @@ def test_event_is_accepted_sanitized_and_cors_reflected(client, tracked_site):
     assert event.referrer_domain == "search.example"
     assert event.referrer_path == "/results"
     assert event.device == "desktop"
+    assert event.country_code == "TR"
+    assert event.region_name == "İstanbul"
+    assert event.city_name == "İstanbul"
     assert "hidden" not in repr(event.__dict__)
 
 

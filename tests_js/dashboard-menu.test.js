@@ -78,6 +78,13 @@ describe("dashboard site menu", () => {
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
   });
 
+  test("loads authenticated region and city breakdowns", () => {
+    const urls = global.fetch.mock.calls.map(([url]) => url);
+
+    expect(urls.some((url) => url.startsWith("/api/analytics/breakdowns/regions?"))).toBe(true);
+    expect(urls.some((url) => url.startsWith("/api/analytics/breakdowns/cities?"))).toBe(true);
+  });
+
   test("supports arrow-key entry and Escape", () => {
     const trigger = document.getElementById("site-menu-trigger");
     const options = document.getElementById("site-menu-options");

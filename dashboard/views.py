@@ -254,6 +254,8 @@ def dashboard(request, site_slug):
                 ("pages", "Top pages", "Views"),
                 ("referrers", "Top referrers", "Views"),
                 ("countries", "Countries", "Sessions"),
+                ("regions", "Regions", "Sessions"),
+                ("cities", "Cities", "Sessions"),
                 ("devices", "Devices", "Sessions"),
                 ("campaigns", "Campaigns", "Sessions"),
                 ("events", "Custom events", "Fired"),

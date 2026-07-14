@@ -12,10 +12,18 @@ class AnalyticsEventAdmin(admin.ModelAdmin):
         "event_name",
         "path",
         "country_code",
+        "city_name",
         "device",
     )
     list_filter = ("site", "event_type", "country_code", "device")
-    search_fields = ("path", "event_name", "referrer_domain", "utm_campaign")
+    search_fields = (
+        "path",
+        "event_name",
+        "referrer_domain",
+        "utm_campaign",
+        "region_name",
+        "city_name",
+    )
     date_hierarchy = "occurred_at"
     readonly_fields = [field.name for field in AnalyticsEvent._meta.fields]
 
@@ -24,4 +32,3 @@ class AnalyticsEventAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
-
