@@ -128,6 +128,56 @@ def metric_values(queryset):
     }
 
 
+def metric_values_by_site(queryset, site_ids):
+    values = {
+        site_id: {
+            "visitors": 0,
+            "sessions": 0,
+            "pageviews": 0,
+            "bounce_rate": 0,
+            "avg_session_duration": 0,
+        }
+        for site_id in site_ids
+    }
+    for row in (
+        queryset.values("site_id")
+        .annotate(
+            visitors=Count("visitor_hash", distinct=True),
+            pageviews=Count("id", filter=Q(event_type="pageview")),
+        )
+        .order_by()
+    ):
+        values[row["site_id"]]["visitors"] = row["visitors"]
+        values[row["site_id"]]["pageviews"] = row["pageviews"]
+
+    session_rows = queryset.values("site_id", "session_id").annotate(
+        event_count=Count("id"),
+        pageview_count=Count("id", filter=Q(event_type="pageview")),
+        first_seen=Min("occurred_at"),
+        last_seen=Max("occurred_at"),
+    )
+    durations = {site_id: [] for site_id in site_ids}
+    bounces = {site_id: 0 for site_id in site_ids}
+    for row in session_rows:
+        site_id = row["site_id"]
+        values[site_id]["sessions"] += 1
+        bounces[site_id] += row["event_count"] == 1 and row["pageview_count"] == 1
+        durations[site_id].append(
+            max(0, (row["last_seen"] - row["first_seen"]).total_seconds())
+        )
+
+    for site_id, metrics in values.items():
+        sessions = metrics["sessions"]
+        metrics["bounce_rate"] = round(
+            (bounces[site_id] / sessions * 100) if sessions else 0,
+            1,
+        )
+        metrics["avg_session_duration"] = (
+            round(sum(durations[site_id]) / sessions) if sessions else 0
+        )
+    return values
+
+
 def delta(current, previous):
     if previous == 0:
         return 0 if current == 0 else None
@@ -148,6 +198,41 @@ def overview(site_slug, period, sites=None):
         "current": current,
         "previous": previous,
         "deltas": {key: delta(current[key], previous[key]) for key in current},
+    }
+
+
+def site_overviews(period, sites=None):
+    if sites is None:
+        sites = TrackedSite.objects.filter(is_active=True)
+    site_list = list(sites)
+    site_ids = [site.pk for site in site_list]
+    ranges = resolve_period(period)
+    current = metric_values_by_site(
+        event_queryset(None, ranges.start, ranges.end, sites),
+        site_ids,
+    )
+    previous = metric_values_by_site(
+        event_queryset(None, ranges.previous_start, ranges.previous_end, sites),
+        site_ids,
+    )
+    return {
+        "site": "all",
+        "period": period,
+        "timezone": str(ranges.timezone),
+        "sites": [
+            {
+                "slug": site.slug,
+                "name": site.name,
+                "domains": site.allowed_domains,
+                "current": current[site.pk],
+                "previous": previous[site.pk],
+                "deltas": {
+                    key: delta(current[site.pk][key], previous[site.pk][key])
+                    for key in current[site.pk]
+                },
+            }
+            for site in site_list
+        ],
     }
 
 

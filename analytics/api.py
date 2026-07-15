@@ -11,7 +11,7 @@ from .bot_ingestion import (
     ingest_bot_event,
 )
 from .ingestion import IngestionError, ingest_event
-from .reporting import bot_traffic, breakdown, overview, timeseries
+from .reporting import bot_traffic, breakdown, overview, site_overviews, timeseries
 from .schemas import AcceptedResponse, BotEventPayload, ErrorResponse, EventPayload
 
 
@@ -58,6 +58,20 @@ def collect_bot_event(request, payload: BotEventPayload):
 def analytics_overview(request, site: str = "all", period: str = "last7d"):
     try:
         return overview(site, period, visible_sites(request))
+    except ValueError as exc:
+        raise HttpError(400, str(exc)) from exc
+
+
+@api.get(
+    "/analytics/sites-overview",
+    auth=django_auth,
+    summary="Get metrics grouped by site",
+)
+def analytics_sites_overview(request, site: str = "all", period: str = "last7d"):
+    if site != "all":
+        raise HttpError(400, "Site comparison is only available for all sites.")
+    try:
+        return site_overviews(period, visible_sites(request))
     except ValueError as exc:
         raise HttpError(400, str(exc)) from exc
 

@@ -5,7 +5,14 @@ from django.urls import reverse
 from django.utils import timezone
 
 from analytics.models import AnalyticsEvent, BotEvent
-from analytics.reporting import bot_traffic, breakdown, last_hour_widget, overview, timeseries
+from analytics.reporting import (
+    bot_traffic,
+    breakdown,
+    last_hour_widget,
+    overview,
+    site_overviews,
+    timeseries,
+)
 from websites.models import TrackedSite
 
 
@@ -113,6 +120,29 @@ def test_site_and_all_site_overview_metrics(analytics_data):
     assert all_result["visitors"] == 3
     assert all_result["sessions"] == 3
     assert all_result["pageviews"] == 3
+
+
+@pytest.mark.django_db
+def test_site_overviews_separates_each_sites_metrics(analytics_data):
+    site, other = analytics_data
+
+    result = site_overviews("last7d")
+
+    by_slug = {row["slug"]: row for row in result["sites"]}
+    assert by_slug[site.slug]["current"] == {
+        "visitors": 2,
+        "sessions": 2,
+        "pageviews": 2,
+        "bounce_rate": 50.0,
+        "avg_session_duration": 900,
+    }
+    assert by_slug[other.slug]["current"] == {
+        "visitors": 1,
+        "sessions": 1,
+        "pageviews": 1,
+        "bounce_rate": 100.0,
+        "avg_session_duration": 0,
+    }
 
 
 @pytest.mark.django_db

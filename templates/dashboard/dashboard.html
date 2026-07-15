@@ -109,28 +109,98 @@
 
     <div id="dashboard-error" class="hidden border border-coral bg-coral/10 p-4 text-sm text-danger" role="alert"></div>
 
-    <section class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5" aria-label="Key metrics">
-      <article class="sh-panel relative overflow-hidden p-5" data-kpi="visitors">
-        <span class="absolute inset-x-0 top-0 h-0.5 bg-forest"></span>
-        <p class="sh-mono mb-3 text-muted">Visitors</p><div class="flex items-baseline justify-between gap-3"><strong data-value class="sh-tabular text-3xl font-semibold">—</strong><span data-delta class="text-xs text-muted">—</span></div>
-      </article>
-      <article class="sh-panel p-5" data-kpi="sessions">
-        <p class="sh-mono mb-3 text-muted">Sessions</p><div class="flex items-baseline justify-between gap-3"><strong data-value class="sh-tabular text-3xl font-semibold">—</strong><span data-delta class="text-xs text-muted">—</span></div>
-      </article>
-      <article class="sh-panel p-5" data-kpi="pageviews">
-        <p class="sh-mono mb-3 text-muted">Pageviews</p><div class="flex items-baseline justify-between gap-3"><strong data-value class="sh-tabular text-3xl font-semibold">—</strong><span data-delta class="text-xs text-muted">—</span></div>
-      </article>
-      <article class="sh-panel p-5" data-kpi="bounce_rate">
-        <p class="sh-mono mb-3 text-muted">Bounce rate</p><div class="flex items-baseline justify-between gap-3"><strong data-value class="sh-tabular text-3xl font-semibold">—</strong><span data-delta class="text-xs text-muted">—</span></div>
-      </article>
-      <article class="sh-panel p-5" data-kpi="avg_session_duration">
-        <p class="sh-mono mb-3 text-muted">Avg. session</p><div class="flex items-baseline justify-between gap-3"><strong data-value class="sh-tabular text-3xl font-semibold">—</strong><span data-delta class="text-xs text-muted">—</span></div>
-      </article>
-    </section>
+    {% if selected_site %}
+      <section class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5" aria-label="Key metrics">
+        <article class="sh-panel relative overflow-hidden p-5" data-kpi="visitors">
+          <span class="absolute inset-x-0 top-0 h-0.5 bg-forest"></span>
+          <p class="sh-mono mb-3 text-muted">Visitors</p><div class="flex items-baseline justify-between gap-3"><strong data-value class="sh-tabular text-3xl font-semibold">—</strong><span data-delta class="text-xs text-muted">—</span></div>
+        </article>
+        <article class="sh-panel p-5" data-kpi="sessions">
+          <p class="sh-mono mb-3 text-muted">Sessions</p><div class="flex items-baseline justify-between gap-3"><strong data-value class="sh-tabular text-3xl font-semibold">—</strong><span data-delta class="text-xs text-muted">—</span></div>
+        </article>
+        <article class="sh-panel p-5" data-kpi="pageviews">
+          <p class="sh-mono mb-3 text-muted">Pageviews</p><div class="flex items-baseline justify-between gap-3"><strong data-value class="sh-tabular text-3xl font-semibold">—</strong><span data-delta class="text-xs text-muted">—</span></div>
+        </article>
+        <article class="sh-panel p-5" data-kpi="bounce_rate">
+          <p class="sh-mono mb-3 text-muted">Bounce rate</p><div class="flex items-baseline justify-between gap-3"><strong data-value class="sh-tabular text-3xl font-semibold">—</strong><span data-delta class="text-xs text-muted">—</span></div>
+        </article>
+        <article class="sh-panel p-5" data-kpi="avg_session_duration">
+          <p class="sh-mono mb-3 text-muted">Avg. session</p><div class="flex items-baseline justify-between gap-3"><strong data-value class="sh-tabular text-3xl font-semibold">—</strong><span data-delta class="text-xs text-muted">—</span></div>
+        </article>
+      </section>
+    {% else %}
+      <section id="site-performance" class="sh-panel overflow-hidden" role="table" aria-labelledby="site-performance-title">
+        <header class="border-b border-ink/15 px-5 py-4 md:px-6">
+          <h2 id="site-performance-title" class="sh-mono font-semibold text-ink">Site performance</h2>
+        </header>
+        {% if sites %}
+          <div class="hidden grid-cols-[minmax(10rem,1.6fr)_minmax(0,5fr)_5rem] items-center gap-6 border-b border-ink/15 bg-paper/60 px-6 py-2.5 lg:grid" role="row">
+            <span class="sh-mono text-[10px] text-muted" role="columnheader">Site</span>
+            <div class="grid grid-cols-5 gap-5" role="presentation">
+              <span class="sh-mono text-[10px] text-muted" role="columnheader">Visitors</span>
+              <span class="sh-mono text-[10px] text-muted" role="columnheader">Sessions</span>
+              <span class="sh-mono text-[10px] text-muted" role="columnheader">Pageviews</span>
+              <span class="sh-mono text-[10px] text-muted" role="columnheader">Bounce</span>
+              <span class="sh-mono text-[10px] text-muted" role="columnheader">Avg. session</span>
+            </div>
+            <span class="sr-only" role="columnheader">Action</span>
+          </div>
+          <div role="rowgroup">
+            {% for site in sites %}
+              <article data-site-summary="{{ site.slug }}"
+                       class="flex flex-col gap-5 border-b border-ink/10 px-5 py-5 last:border-b-0 lg:grid lg:grid-cols-[minmax(10rem,1.6fr)_minmax(0,5fr)_5rem] lg:items-center lg:gap-6 lg:px-6 lg:py-4"
+                       role="row">
+                <div class="min-w-0" role="cell">
+                  <h3 class="truncate text-sm font-semibold">{{ site.name }}</h3>
+                  <p class="mt-1 truncate text-xs text-muted">{{ site.allowed_domains|join:", " }}</p>
+                </div>
+                <div class="grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-3 lg:grid-cols-5" role="presentation">
+                  <div data-site-metric="visitors" role="cell">
+                    <p class="sh-mono mb-1 text-[10px] text-muted lg:hidden">Visitors</p>
+                    <div class="flex items-baseline gap-2"><strong data-value class="sh-tabular text-xl font-semibold">—</strong><span data-delta class="text-xs text-muted">—</span></div>
+                  </div>
+                  <div data-site-metric="sessions" role="cell">
+                    <p class="sh-mono mb-1 text-[10px] text-muted lg:hidden">Sessions</p>
+                    <div class="flex items-baseline gap-2"><strong data-value class="sh-tabular text-xl font-semibold">—</strong><span data-delta class="text-xs text-muted">—</span></div>
+                  </div>
+                  <div data-site-metric="pageviews" role="cell">
+                    <p class="sh-mono mb-1 text-[10px] text-muted lg:hidden">Pageviews</p>
+                    <div class="flex items-baseline gap-2"><strong data-value class="sh-tabular text-xl font-semibold">—</strong><span data-delta class="text-xs text-muted">—</span></div>
+                  </div>
+                  <div data-site-metric="bounce_rate" role="cell">
+                    <p class="sh-mono mb-1 text-[10px] text-muted lg:hidden">Bounce</p>
+                    <div class="flex items-baseline gap-2"><strong data-value class="sh-tabular text-xl font-semibold">—</strong><span data-delta class="text-xs text-muted">—</span></div>
+                  </div>
+                  <div data-site-metric="avg_session_duration" class="col-span-2 sm:col-span-1" role="cell">
+                    <p class="sh-mono mb-1 text-[10px] text-muted lg:hidden">Avg. session</p>
+                    <div class="flex items-baseline gap-2"><strong data-value class="sh-tabular text-xl font-semibold">—</strong><span data-delta class="text-xs text-muted">—</span></div>
+                  </div>
+                </div>
+                <div role="cell">
+                  <a href="{% url 'dashboard-site' site.slug %}?period={{ period }}&amp;granularity={{ granularity }}"
+                     class="inline-flex min-h-10 w-fit items-center text-sm font-medium text-forest underline decoration-forest/25 underline-offset-4 transition-colors hover:text-ink lg:block lg:min-h-0 lg:w-10 lg:text-[11px] lg:leading-[14px] lg:text-muted lg:no-underline lg:hover:text-forest">View details</a>
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="px-5 py-8 md:px-6">
+            <p class="font-medium">No active sites yet.</p>
+            <p class="mt-2 text-sm text-muted">Add a website to start comparing its traffic here.</p>
+          </div>
+        {% endif %}
+      </section>
+
+      <section class="flex items-center gap-3 pt-2" aria-label="All-site aggregate summary">
+        <span class="h-px flex-1 bg-ink/15"></span>
+        <h2 class="sh-mono shrink-0 text-[10px] text-muted">All-site aggregate summary</h2>
+        <span class="h-px flex-1 bg-ink/15"></span>
+      </section>
+    {% endif %}
 
     <section class="sh-panel p-4 md:p-6" aria-labelledby="traffic-chart-title">
       <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div><h2 id="traffic-chart-title" class="sh-mono text-ink">Traffic volume</h2><p id="chart-timezone" class="mt-1 text-xs text-muted"></p></div>
+        <div><h2 id="traffic-chart-title" class="sh-mono text-ink">{% if selected_site %}Traffic volume{% else %}Aggregate volume{% endif %}</h2><p id="chart-timezone" class="mt-1 text-xs text-muted"></p></div>
         <div class="flex items-center gap-5 text-xs"><span class="flex items-center gap-2"><i class="size-3 bg-forest"></i>Visitors</span><span class="flex items-center gap-2"><i class="size-3 bg-coral"></i>Pageviews</span></div>
       </div>
       <div class="relative h-[300px]"><canvas id="traffic-chart"></canvas></div>

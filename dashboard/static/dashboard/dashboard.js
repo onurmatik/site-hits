@@ -210,16 +210,33 @@
     return numberFormat.format(raw);
   }
 
+  function renderDelta(element, metric, delta) {
+    element.textContent = delta == null ? "New" : (delta > 0 ? "+" : "") + delta + "%";
+    var improved = metric === "bounce_rate" ? delta <= 0 : delta >= 0;
+    element.className = "text-xs " + (
+      delta == null ? "text-muted" : improved ? "text-success" : "text-danger"
+    );
+  }
+
   function renderKpis(data) {
     Object.keys(data.current).forEach(function (metric) {
       var card = document.querySelector('[data-kpi="' + metric + '"]');
       if (!card) return;
       card.querySelector("[data-value]").textContent = value(metric, data.current[metric]);
-      var delta = data.deltas[metric];
-      var deltaElement = card.querySelector("[data-delta]");
-      deltaElement.textContent = delta == null ? "New" : (delta > 0 ? "+" : "") + delta + "%";
-      var improved = metric === "bounce_rate" ? delta <= 0 : delta >= 0;
-      deltaElement.className = "text-xs " + (delta == null ? "text-muted" : improved ? "text-success" : "text-danger");
+      renderDelta(card.querySelector("[data-delta]"), metric, data.deltas[metric]);
+    });
+  }
+
+  function renderSiteOverviews(data) {
+    data.sites.forEach(function (siteData) {
+      var row = document.querySelector('[data-site-summary="' + siteData.slug + '"]');
+      if (!row) return;
+      Object.keys(siteData.current).forEach(function (metric) {
+        var cell = row.querySelector('[data-site-metric="' + metric + '"]');
+        if (!cell) return;
+        cell.querySelector("[data-value]").textContent = value(metric, siteData.current[metric]);
+        renderDelta(cell.querySelector("[data-delta]"), metric, siteData.deltas[metric]);
+      });
     });
   }
 
@@ -361,11 +378,12 @@
 
   var dimensions = ["pages", "referrers", "countries", "regions", "cities", "devices", "campaigns", "events"];
   Promise.all([
-    api("overview"),
+    api(site === "all" ? "sites-overview" : "overview"),
     api("timeseries", { granularity: granularity }),
   ].concat(dimensions.map(function (dimension) { return api("breakdowns/" + dimension); })))
     .then(function (responses) {
-      renderKpis(responses[0]);
+      if (site === "all") renderSiteOverviews(responses[0]);
+      else renderKpis(responses[0]);
       renderChart(responses[1]);
       dimensions.forEach(function (dimension, index) { renderRows(dimension, responses[index + 2].data); });
     })
