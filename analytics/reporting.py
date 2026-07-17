@@ -1,3 +1,4 @@
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
@@ -9,6 +10,14 @@ from django.utils import timezone
 
 from websites.models import TrackedSite
 
+from .automation import (
+    AUTOMATION_REASON_LABELS,
+    EXPLICIT_AUTOMATION_SCORE_THRESHOLD,
+    HIGH_VOLUME_PAGEVIEW_THRESHOLD,
+    RAPID_BURST_PAGEVIEW_THRESHOLD,
+    RAPID_BURST_WINDOW_SECONDS,
+    SESSION_CHURN_THRESHOLD,
+)
 from .models import AnalyticsEvent, BotEvent
 
 
@@ -82,13 +91,19 @@ def selected_site(site_slug, sites=None):
         raise ValueError("Unknown site.") from exc
 
 
-def event_queryset(site, start, end, sites=None):
+def raw_event_queryset(site, start, end, sites=None):
     queryset = AnalyticsEvent.objects.filter(occurred_at__gte=start, occurred_at__lt=end)
     if site:
         return queryset.filter(site=site)
     if sites is not None:
         return queryset.filter(site__in=sites)
     return queryset.filter(site__is_active=True)
+
+
+def event_queryset(site, start, end, sites=None):
+    return raw_event_queryset(site, start, end, sites).filter(
+        automation_score__lt=EXPLICIT_AUTOMATION_SCORE_THRESHOLD
+    )
 
 
 def bot_event_queryset(site, start, end, sites=None):
@@ -350,10 +365,145 @@ def breakdown(site_slug, period, dimension, limit=8, sites=None):
     }
 
 
+def _collector_health(site, sites=None):
+    if site:
+        queryset = TrackedSite.objects.filter(pk=site.pk)
+    elif sites is not None:
+        queryset = sites
+    else:
+        queryset = TrackedSite.objects.filter(is_active=True)
+
+    timestamps = queryset.aggregate(
+        last_seen_at=Max("bot_collector_last_seen_at"),
+        last_event_at=Max("bot_collector_last_event_at"),
+    )
+    last_seen_at = timestamps["last_seen_at"]
+    if last_seen_at is None:
+        state = "never_seen"
+    elif last_seen_at >= timezone.now() - timedelta(hours=24):
+        state = "active"
+    else:
+        state = "stale"
+    return {
+        "state": state,
+        "last_seen_at": last_seen_at.isoformat() if last_seen_at else None,
+        "last_event_at": (
+            timestamps["last_event_at"].isoformat()
+            if timestamps["last_event_at"]
+            else None
+        ),
+    }
+
+
+def _suspected_automation(queryset, limit):
+    suspected_by_site = defaultdict(set)
+    visitors_by_reason = defaultdict(set)
+
+    explicit_rows = queryset.filter(
+        automation_score__gte=EXPLICIT_AUTOMATION_SCORE_THRESHOLD
+    ).values("site_id", "visitor_hash", "automation_reasons")
+    for row in explicit_rows.iterator():
+        site_id = row["site_id"]
+        visitor_hash = row["visitor_hash"]
+        visitor_key = f"{site_id}:{visitor_hash}"
+        suspected_by_site[site_id].add(visitor_hash)
+        reasons = row["automation_reasons"] or ["webdriver"]
+        for reason in reasons:
+            if reason in AUTOMATION_REASON_LABELS:
+                visitors_by_reason[reason].add(visitor_key)
+
+    candidate_rows = (
+        queryset.filter(event_type=AnalyticsEvent.EventType.PAGEVIEW)
+        .values("site_id", "visitor_hash")
+        .annotate(
+            pageviews=Count("id"),
+            sessions=Count("session_id", distinct=True),
+            first_seen=Min("occurred_at"),
+            last_seen=Max("occurred_at"),
+        )
+        .filter(
+            Q(pageviews__gte=RAPID_BURST_PAGEVIEW_THRESHOLD)
+            | Q(sessions__gte=SESSION_CHURN_THRESHOLD)
+        )
+    )
+    for row in candidate_rows.iterator():
+        reasons = []
+        if row["pageviews"] >= HIGH_VOLUME_PAGEVIEW_THRESHOLD:
+            reasons.append("high_request_volume")
+        active_seconds = max(
+            0,
+            (row["last_seen"] - row["first_seen"]).total_seconds(),
+        )
+        if (
+            row["pageviews"] >= RAPID_BURST_PAGEVIEW_THRESHOLD
+            and active_seconds <= RAPID_BURST_WINDOW_SECONDS
+        ):
+            reasons.append("rapid_navigation_burst")
+        if row["sessions"] >= SESSION_CHURN_THRESHOLD:
+            reasons.append("session_churn")
+        if not reasons:
+            continue
+
+        site_id = row["site_id"]
+        visitor_hash = row["visitor_hash"]
+        visitor_key = f"{site_id}:{visitor_hash}"
+        suspected_by_site[site_id].add(visitor_hash)
+        for reason in reasons:
+            visitors_by_reason[reason].add(visitor_key)
+
+    suspected_filter = Q()
+    for site_id, visitor_hashes in suspected_by_site.items():
+        suspected_filter |= Q(site_id=site_id, visitor_hash__in=visitor_hashes)
+    if not suspected_filter:
+        return {
+            "visitors": 0,
+            "sessions": 0,
+            "pageviews": 0,
+            "reasons": [],
+            "pages": [],
+        }
+
+    suspected_events = queryset.filter(suspected_filter)
+    total_visitors = sum(len(hashes) for hashes in suspected_by_site.values())
+    sessions = suspected_events.values("site_id", "session_id").distinct().count()
+    pageviews = suspected_events.filter(
+        event_type=AnalyticsEvent.EventType.PAGEVIEW
+    ).count()
+    row_limit = max(1, min(limit, 50))
+    page_rows = list(
+        suspected_events.filter(event_type=AnalyticsEvent.EventType.PAGEVIEW)
+        .values("path")
+        .annotate(count=Count("id"))
+        .order_by("-count", "path")[:row_limit]
+    )
+    reason_rows = sorted(
+        (
+            {
+                "key": reason,
+                "label": AUTOMATION_REASON_LABELS[reason],
+                "visitors": len(visitor_keys),
+            }
+            for reason, visitor_keys in visitors_by_reason.items()
+        ),
+        key=lambda row: (-row["visitors"], row["label"]),
+    )
+    return {
+        "visitors": total_visitors,
+        "sessions": sessions,
+        "pageviews": pageviews,
+        "reasons": reason_rows,
+        "pages": page_rows,
+    }
+
+
 def bot_traffic(site_slug, period, limit=8, sites=None):
     site = selected_site(site_slug, sites)
     ranges = resolve_period(period, site)
     queryset = bot_event_queryset(site, ranges.start, ranges.end, sites)
+    automation = _suspected_automation(
+        raw_event_queryset(site, ranges.start, ranges.end, sites),
+        limit,
+    )
     total = queryset.count()
     category_counts = {
         row["category"]: row["count"]
@@ -375,6 +525,7 @@ def bot_traffic(site_slug, period, limit=8, sites=None):
         "site": site_slug,
         "period": period,
         "timezone": str(ranges.timezone),
+        "collector": _collector_health(site, sites),
         "total": total,
         "categories": [
             {
@@ -412,6 +563,7 @@ def bot_traffic(site_slug, period, limit=8, sites=None):
                 verification=BotEvent.Verification.USER_AGENT
             ).count(),
         },
+        "suspected_automation": automation,
     }
 
 
@@ -428,6 +580,7 @@ def last_hour_widget(site, now=None):
         site=site,
         occurred_at__gte=start,
         occurred_at__lt=end,
+        automation_score__lt=EXPLICIT_AUTOMATION_SCORE_THRESHOLD,
     )
 
     minute_rows = (

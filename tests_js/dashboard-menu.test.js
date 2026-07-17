@@ -39,6 +39,7 @@ function installDashboard(botResponse) {
         <p id="copy-embed-widget-status"></p>
       </dialog>
       <section id="bot-traffic">
+        <span data-bot-collector>Collector status loading</span>
         <span data-bot-verification>Known user-agent matches</span>
         <div data-bot-empty hidden>No bot traffic</div>
         <div data-bot-content>
@@ -49,6 +50,11 @@ function installDashboard(botResponse) {
           <article data-bot-category="other"><strong data-value>—</strong><span data-share>—</span></article>
           <article data-bot-breakdown="providers"><div data-rows></div></article>
           <article data-bot-breakdown="pages"><div data-rows></div></article>
+          <article data-automation-metric="visitors"><strong data-value>—</strong></article>
+          <article data-automation-metric="sessions"><strong data-value>—</strong></article>
+          <article data-automation-metric="pageviews"><strong data-value>—</strong></article>
+          <article data-automation-breakdown="reasons"><div data-rows></div></article>
+          <article data-automation-breakdown="pages"><div data-rows></div></article>
         </div>
       </section>
     </div>`;
@@ -177,6 +183,7 @@ describe("dashboard site menu", () => {
 describe("dashboard bot traffic", () => {
   test("renders bot categories, providers, paths, status, and verification", async () => {
     installDashboard({
+      collector: { state: "active", last_seen_at: "2026-07-17T08:00:00Z", last_event_at: null },
       total: 3,
       categories: [
         { key: "answer", count: 1, percentage: 33.3 },
@@ -187,6 +194,7 @@ describe("dashboard bot traffic", () => {
       providers: [{ label: "OpenAI", count: 3, percentage: 100 }],
       pages: [{ path: "/missing", status_code: 404, count: 2, percentage: 66.7 }],
       verification: { ip_verified: 0, user_agent: 3 },
+      suspected_automation: { visitors: 0, sessions: 0, pageviews: 0, reasons: [], pages: [] },
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -200,6 +208,37 @@ describe("dashboard bot traffic", () => {
     expect(document.querySelector('[data-bot-breakdown="pages"] [data-rows]').textContent).toContain("/missing");
     expect(document.querySelector('[data-bot-breakdown="pages"] [data-rows]').textContent).toContain("404");
     expect(document.querySelector("[data-bot-verification]").textContent).toBe("3 user-agent matched");
+    expect(document.querySelector("[data-bot-collector]").textContent).toContain("Collector active");
     expect(document.querySelector("[data-bot-empty]").hidden).toBe(true);
+  });
+
+  test("renders suspected automation even when no known crawler was matched", async () => {
+    installDashboard({
+      collector: { state: "never_seen", last_seen_at: null, last_event_at: null },
+      total: 0,
+      categories: [
+        { key: "answer", count: 0, percentage: 0 },
+        { key: "indexing", count: 0, percentage: 0 },
+        { key: "training", count: 0, percentage: 0 },
+        { key: "other", count: 0, percentage: 0 },
+      ],
+      providers: [],
+      pages: [],
+      verification: { ip_verified: 0, user_agent: 0 },
+      suspected_automation: {
+        visitors: 2,
+        sessions: 20,
+        pageviews: 20,
+        reasons: [{ key: "session_churn", label: "Repeated session churn", visitors: 2 }],
+        pages: [{ path: "/destinations", count: 20 }],
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(document.querySelector('[data-automation-metric="pageviews"] [data-value]').textContent).toBe("20");
+    });
+    expect(document.querySelector('[data-automation-breakdown="reasons"] [data-rows]').textContent).toContain("Repeated session churn");
+    expect(document.querySelector('[data-automation-breakdown="pages"] [data-rows]').textContent).toContain("/destinations");
+    expect(document.querySelector("[data-bot-content]").hidden).toBe(false);
   });
 });

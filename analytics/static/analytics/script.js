@@ -14,7 +14,7 @@
     ? window.sitehits.q.slice()
     : [];
 
-  if (!siteKey || navigator.webdriver) return;
+  if (!siteKey) return;
 
   function uuid() {
     if (window.crypto && typeof window.crypto.randomUUID === "function") {
@@ -68,6 +68,7 @@
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "",
       viewport: dimensions({ width: window.innerWidth, height: window.innerHeight }),
       screen: dimensions(window.screen),
+      automation: { webdriver: navigator.webdriver === true },
       properties: properties || {},
     };
   }

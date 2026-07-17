@@ -83,6 +83,8 @@ def test_onboarding_requires_authentication_and_creates_owned_site(client, super
     assert site.bot_key.encode() in install.content
     assert b'id="bot-tracking-settings"' in install.content
     assert b'id="bot-agent-instruction"' in install.content
+    assert b"accepted=false" in install.content
+    assert b"non-2xx" in install.content
     assert install.content.count(b"data-copy-target=") == 4
     assert b'id="copy-status"' in install.content
 

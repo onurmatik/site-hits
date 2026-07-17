@@ -39,6 +39,8 @@ class AnalyticsEvent(models.Model):
     viewport_height = models.PositiveIntegerField(default=0)
     screen_width = models.PositiveIntegerField(default=0)
     screen_height = models.PositiveIntegerField(default=0)
+    automation_score = models.PositiveSmallIntegerField(default=0)
+    automation_reasons = models.JSONField(default=list, blank=True)
     properties = models.JSONField(default=dict, blank=True)
 
     class Meta:
@@ -56,6 +58,10 @@ class AnalyticsEvent(models.Model):
             models.Index(
                 fields=["site", "event_type", "occurred_at"],
                 name="event_site_type_idx",
+            ),
+            models.Index(
+                fields=["site", "automation_score", "occurred_at"],
+                name="event_site_auto_idx",
             ),
         ]
 

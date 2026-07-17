@@ -250,7 +250,64 @@ def test_bot_traffic_reports_categories_providers_paths_and_scope(tracked_site):
         for row in result["pages"]
     )
     assert result["verification"] == {"ip_verified": 0, "user_agent": 2}
+    assert result["collector"]["state"] == "never_seen"
+    assert result["suspected_automation"] == {
+        "visitors": 0,
+        "sessions": 0,
+        "pageviews": 0,
+        "reasons": [],
+        "pages": [],
+    }
     assert bot_traffic("all", "last7d")["total"] == 3
+
+
+@pytest.mark.django_db
+def test_suspected_automation_combines_explicit_and_behavioral_signals(tracked_site):
+    make_event(
+        tracked_site,
+        minutes=5,
+        session="webdriver-session",
+        visitor="webdriver-visitor",
+        path="/automated",
+        automation_score=100,
+        automation_reasons=["webdriver"],
+    )
+    for index in range(20):
+        make_event(
+            tracked_site,
+            minutes=4,
+            session=f"churn-session-{index}",
+            visitor="churn-visitor",
+            path="/destinations",
+        )
+
+    result = bot_traffic(tracked_site.slug, "last7d")["suspected_automation"]
+
+    assert result["visitors"] == 2
+    assert result["sessions"] == 21
+    assert result["pageviews"] == 21
+    assert {row["key"] for row in result["reasons"]} == {
+        "webdriver",
+        "rapid_navigation_burst",
+        "session_churn",
+    }
+    assert result["pages"][0] == {"path": "/destinations", "count": 20}
+    assert overview(tracked_site.slug, "last7d")["current"]["pageviews"] == 20
+
+
+@pytest.mark.django_db
+def test_bot_report_exposes_recent_collector_health(tracked_site):
+    now = timezone.now()
+    tracked_site.bot_collector_last_seen_at = now
+    tracked_site.bot_collector_last_event_at = now - timedelta(minutes=2)
+    tracked_site.save(
+        update_fields=["bot_collector_last_seen_at", "bot_collector_last_event_at"]
+    )
+
+    collector = bot_traffic(tracked_site.slug, "last7d")["collector"]
+
+    assert collector["state"] == "active"
+    assert collector["last_seen_at"] == now.isoformat()
 
 
 @pytest.mark.django_db

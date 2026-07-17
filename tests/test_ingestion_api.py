@@ -58,7 +58,31 @@ def test_event_is_accepted_sanitized_and_cors_reflected(client, tracked_site):
     assert event.country_code == "TR"
     assert event.region_name == "İstanbul"
     assert event.city_name == "İstanbul"
+    assert event.automation_score == 0
+    assert event.automation_reasons == []
     assert "hidden" not in repr(event.__dict__)
+
+
+@pytest.mark.django_db
+def test_browser_automation_signal_is_stored_for_separate_reporting(client, tracked_site):
+    response = client.post(
+        "/api/events",
+        data=json.dumps(
+            event_payload(
+                tracked_site,
+                automation={"webdriver": True},
+            )
+        ),
+        content_type="application/json",
+        HTTP_ORIGIN="https://example.com",
+        HTTP_USER_AGENT="Mozilla/5.0 HeadlessChrome/126.0 Safari/537.36",
+        REMOTE_ADDR="203.0.113.8",
+    )
+
+    assert response.status_code == 202
+    event = AnalyticsEvent.objects.get()
+    assert event.automation_score == 100
+    assert event.automation_reasons == ["webdriver", "headless_user_agent"]
 
 
 @pytest.mark.django_db

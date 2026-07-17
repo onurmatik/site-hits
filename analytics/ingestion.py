@@ -4,6 +4,7 @@ from django.utils import timezone
 
 from websites.models import TrackedSite
 
+from .automation import assess_browser_automation
 from .models import AnalyticsEvent
 from .privacy import (
     EVENT_NAME_PATTERN,
@@ -58,6 +59,7 @@ def ingest_event(request, payload):
     device = device_details(user_agent)
     if device["is_bot"]:
         return None
+    automation = assess_browser_automation(user_agent, payload.automation)
 
     ip_address = client_ip(request)
     location = location_for_ip(ip_address)
@@ -84,6 +86,8 @@ def ingest_event(request, payload):
         viewport_height=payload.viewport.height,
         screen_width=payload.screen.width,
         screen_height=payload.screen.height,
+        automation_score=automation.score,
+        automation_reasons=list(automation.reasons),
         properties=properties,
         **utm,
     )

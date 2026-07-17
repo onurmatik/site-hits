@@ -29,6 +29,7 @@ describe("cookieless tracker", () => {
     const request = JSON.parse(fetch.mock.calls[0][1].body);
     expect(request.event_type).toBe("pageview");
     expect(request.session_id).toBeTruthy();
+    expect(request.automation).toEqual({ webdriver: false });
     expect(document.cookie).toBe("");
     expect(localStorage.length).toBe(0);
   });
@@ -57,5 +58,14 @@ describe("cookieless tracker", () => {
     installTracker();
     const request = JSON.parse(fetch.mock.calls[0][1].body);
     expect(request.session_id).not.toBe("expired-session");
+  });
+
+  test("reports webdriver automation instead of silently dropping it", () => {
+    Object.defineProperty(navigator, "webdriver", { configurable: true, value: true });
+
+    installTracker();
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetch.mock.calls[0][1].body).automation).toEqual({ webdriver: true });
   });
 });

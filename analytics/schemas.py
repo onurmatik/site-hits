@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import TypeAlias
+from typing import Literal, TypeAlias
 
 from ninja import Field, Schema
 from pydantic import field_validator
@@ -11,6 +11,10 @@ JsonScalar: TypeAlias = str | int | float | bool | None
 class ViewportSchema(Schema):
     width: int = Field(ge=0, le=10000)
     height: int = Field(ge=0, le=10000)
+
+
+class AutomationSignalsSchema(Schema):
+    webdriver: bool = False
 
 
 class EventPayload(Schema):
@@ -25,6 +29,7 @@ class EventPayload(Schema):
     timezone: str = Field(default="", max_length=64)
     viewport: ViewportSchema
     screen: ViewportSchema
+    automation: AutomationSignalsSchema = Field(default_factory=AutomationSignalsSchema)
     properties: dict[str, JsonScalar] = Field(default_factory=dict)
 
     @field_validator("event_type")
@@ -44,6 +49,10 @@ class BotEventPayload(Schema):
 
 class AcceptedResponse(Schema):
     accepted: bool
+
+
+class BotAcceptedResponse(AcceptedResponse):
+    classification: Literal["known_crawler", "unrecognized"]
 
 
 class ErrorDetail(Schema):

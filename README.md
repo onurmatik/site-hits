@@ -77,7 +77,13 @@ Content-Type: application/json
 }
 ```
 
-Only known crawler tokens are stored. Human and unknown user-agents return `{"accepted": false}` and create no row. Do not await analytics when the runtime provides `waitUntil`; collector failures must never delay or break the page response. Obvious static assets and internal API routes can be excluded, while `robots.txt`, `llms.txt`, sitemap XML, and Markdown content should remain trackable.
+Only known crawler tokens are stored as verified bot requests. Successful responses include a backward-compatible classification: `{"accepted": true, "classification": "known_crawler"}` or `{"accepted": false, "classification": "unrecognized"}`. The latter is a healthy collector response and creates no bot row. SiteHits records a throttled collector heartbeat for valid key/domain calls, so the dashboard can distinguish an active collector from one that has never checked in.
+
+Do not await analytics when the runtime provides `waitUntil`; collector failures must never delay or break the page response. Log network failures and non-2xx responses without logging the private key, full URL, or user-agent. Obvious static assets and internal API routes can be excluded, while `robots.txt`, `llms.txt`, sitemap XML, and Markdown content should remain trackable. Existing collectors do not need a payload change; response inspection is an optional observability upgrade.
+
+### Suspected automation
+
+The browser tracker reports a privacy-safe `navigator.webdriver` boolean and SiteHits also checks for explicit headless user-agent tokens. These high-confidence events are separated from regular visitor metrics. The bot report additionally applies conservative daily-visitor heuristics for high request volume, rapid navigation bursts, and repeated session churn. Heuristic results are labeled **suspected automation**, remain distinct from verified crawler identity, and may overlap regular traffic metrics. Because the hosted tracker is updated centrally, installed browser snippets do not need to change.
 
 ## Reporting
 
@@ -125,4 +131,4 @@ uv run python manage.py check
 npm run build
 ```
 
-The test suites cover origin validation, URL sanitization, privacy hashing, bot suppression, all reporting metrics/breakdowns, authentication, retention, initial/SPA pageviews, custom events, and session expiry.
+The test suites cover origin validation, URL sanitization, privacy hashing, verified crawler collection, collector health, suspected automation, all reporting metrics/breakdowns, authentication, retention, initial/SPA pageviews, custom events, and session expiry.

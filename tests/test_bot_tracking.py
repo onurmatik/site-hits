@@ -53,7 +53,10 @@ def test_server_collector_stores_sanitized_known_bot_request(client, tracked_sit
     )
 
     assert response.status_code == 202
-    assert response.json() == {"accepted": True}
+    assert response.json() == {
+        "accepted": True,
+        "classification": "known_crawler",
+    }
     event = BotEvent.objects.get()
     assert event.site == tracked_site
     assert event.path == "/docs/start"
@@ -62,6 +65,9 @@ def test_server_collector_stores_sanitized_known_bot_request(client, tracked_sit
     assert event.crawler == "GPTBot"
     assert event.category == BotEvent.Category.TRAINING
     assert event.verification == BotEvent.Verification.USER_AGENT
+    tracked_site.refresh_from_db()
+    assert tracked_site.bot_collector_last_seen_at is not None
+    assert tracked_site.bot_collector_last_event_at is not None
     assert "hidden" not in repr(event.__dict__)
     assert raw_user_agent not in repr(event.__dict__)
 
@@ -98,10 +104,16 @@ def test_server_collector_ignores_humans_and_rejects_bad_auth_or_host(client, tr
     )
 
     assert ignored.status_code == 202
-    assert ignored.json() == {"accepted": False}
+    assert ignored.json() == {
+        "accepted": False,
+        "classification": "unrecognized",
+    }
     assert missing_key.status_code == 401
     assert wrong_host.status_code == 400
     assert BotEvent.objects.count() == 0
+    tracked_site.refresh_from_db()
+    assert tracked_site.bot_collector_last_seen_at is not None
+    assert tracked_site.bot_collector_last_event_at is None
 
 
 @pytest.mark.django_db

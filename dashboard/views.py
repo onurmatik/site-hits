@@ -97,7 +97,10 @@ def _bot_tracking_agent_instruction(site):
         f"{endpoint} with Authorization: Bearer {site.bot_key} and Content-Type: "
         "application/json. The JSON body must contain url and user_agent, and may contain "
         "status_code and an ISO-8601 timestamp. Keep the bot key server-side and do not expose "
-        "it in browser code. Ignore collector failures so analytics can never break requests."
+        "it in browser code. Treat HTTP 202 with accepted=false as a healthy unrecognized "
+        "user-agent response. Log network failures and non-2xx responses with only the HTTP "
+        "status, request path, and returned error message; never log the bot key, full URL, or "
+        "user-agent. Collector failures must remain best-effort and never break requests."
     )
 
 

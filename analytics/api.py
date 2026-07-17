@@ -12,7 +12,13 @@ from .bot_ingestion import (
 )
 from .ingestion import IngestionError, ingest_event
 from .reporting import bot_traffic, breakdown, overview, site_overviews, timeseries
-from .schemas import AcceptedResponse, BotEventPayload, ErrorResponse, EventPayload
+from .schemas import (
+    AcceptedResponse,
+    BotAcceptedResponse,
+    BotEventPayload,
+    ErrorResponse,
+    EventPayload,
+)
 
 
 api = NinjaAPI(title="SiteHits API", version="1.0.0")
@@ -41,7 +47,7 @@ def collect_event(request, payload: EventPayload):
 @api.post(
     "/bot-events",
     auth=None,
-    response={202: AcceptedResponse, 400: ErrorResponse, 401: ErrorResponse},
+    response={202: BotAcceptedResponse, 400: ErrorResponse, 401: ErrorResponse},
     summary="Collect a server-side bot request",
 )
 def collect_bot_event(request, payload: BotEventPayload):
@@ -51,7 +57,13 @@ def collect_bot_event(request, payload: BotEventPayload):
         return Status(401, {"error": {"message": str(exc)}})
     except BotIngestionError as exc:
         return Status(400, {"error": {"message": str(exc)}})
-    return Status(202, {"accepted": event is not None})
+    return Status(
+        202,
+        {
+            "accepted": event is not None,
+            "classification": "known_crawler" if event is not None else "unrecognized",
+        },
+    )
 
 
 @api.get("/analytics/overview", auth=django_auth, summary="Get aggregate metrics")

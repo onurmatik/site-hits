@@ -348,12 +348,47 @@
     });
   }
 
+  function renderAutomationRows(kind, data) {
+    var container = document.querySelector('[data-automation-breakdown="' + kind + '"] [data-rows]');
+    if (!container) return;
+    container.replaceChildren();
+    data.forEach(function (row) {
+      var item = document.createElement("div");
+      item.className = "flex min-h-12 items-center justify-between gap-4 px-3 transition-colors hover:bg-paper";
+      var label = document.createElement("span");
+      label.className = "min-w-0 flex-1 truncate text-[13px] font-medium";
+      label.textContent = kind === "pages" ? row.path : row.label;
+      var count = document.createElement("span");
+      count.className = "sh-tabular text-[13px] font-medium";
+      count.textContent = numberFormat.format(kind === "pages" ? row.count : row.visitors);
+      item.append(label, count);
+      container.appendChild(item);
+    });
+  }
+
+  function renderCollectorHealth(collector) {
+    var target = document.querySelector("[data-bot-collector]");
+    if (!target || !collector) return;
+    target.classList.remove("text-success", "text-danger");
+    if (collector.state === "active") {
+      target.classList.add("text-success");
+      target.textContent = "Collector active · last seen " + new Date(collector.last_seen_at).toLocaleString();
+    } else if (collector.state === "stale") {
+      target.classList.add("text-danger");
+      target.textContent = "Collector stale · last seen " + new Date(collector.last_seen_at).toLocaleString();
+    } else {
+      target.textContent = "Collector has not checked in";
+    }
+  }
+
   function renderBotTraffic(data) {
     var empty = document.querySelector("[data-bot-empty]");
     var content = document.querySelector("[data-bot-content]");
-    empty.hidden = data.total !== 0;
-    content.hidden = data.total === 0;
-    if (!data.total) return;
+    var automation = data.suspected_automation || { visitors: 0, sessions: 0, pageviews: 0, reasons: [], pages: [] };
+    var hasTraffic = Boolean(data.total || automation.visitors || automation.sessions || automation.pageviews);
+    empty.hidden = hasTraffic;
+    content.hidden = !hasTraffic;
+    renderCollectorHealth(data.collector);
 
     var total = document.querySelector('[data-bot-category="total"]');
     total.querySelector("[data-value]").textContent = numberFormat.format(data.total);
@@ -368,6 +403,12 @@
       : numberFormat.format(data.verification.user_agent) + " user-agent matched";
     renderBotProviderRows(data.providers);
     renderBotPageRows(data.pages);
+    ["visitors", "sessions", "pageviews"].forEach(function (metric) {
+      var card = document.querySelector('[data-automation-metric="' + metric + '"]');
+      if (card) card.querySelector("[data-value]").textContent = numberFormat.format(automation[metric]);
+    });
+    renderAutomationRows("reasons", automation.reasons);
+    renderAutomationRows("pages", automation.pages);
   }
 
   function showError(error) {
