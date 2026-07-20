@@ -1,93 +1,299 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}Product metrics · {{ site.name }} · SiteHits{% endblock %}
 
 {% block body %}
-<main class="mx-auto min-h-screen w-full max-w-5xl space-y-8 p-4 md:p-8">
-  <header class="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-    <div>
-      <a href="{% url 'dashboard-site' site.slug %}" class="sh-mono text-muted hover:text-forest">← {{ site.name }}</a>
-      <h1 class="mt-3 text-3xl font-semibold tracking-tight">Product metrics</h1>
-      <p class="mt-2 max-w-2xl leading-6 text-muted">Define authoritative product events, one activation funnel, and the exact instruction an agent should implement.</p>
+<main id="product-metrics-flow" data-step="{{ step }}" class="mx-auto min-h-screen w-full max-w-5xl space-y-8 p-4 md:p-8">
+  <header class="space-y-7">
+    <div class="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+      <div>
+        <a href="{% url 'dashboard-site' site.slug %}" class="sh-mono text-muted transition-colors hover:text-forest">← {{ site.name }}</a>
+        <h1 class="mt-3 text-3xl font-semibold tracking-tight">Product metrics</h1>
+        <p class="mt-2 max-w-2xl leading-6 text-muted">Tell SiteHits which outcomes matter. Review the tracking plan, then hand the approved instruction to your coding agent.</p>
+      </div>
+      {% if saved == "events" or saved == "activation" %}<p class="sh-mono text-success" role="status">Advanced settings saved</p>{% endif %}
     </div>
-    {% if saved %}<p class="sh-mono text-success" role="status">Settings saved</p>{% endif %}
+
+    <nav aria-label="Setup progress">
+      <ol class="grid grid-cols-3 gap-3 sm:gap-5">
+        <li class="border-t-2 pt-3 {% if step == 'describe' or step == 'review' or step == 'install' %}border-forest{% else %}border-ink/15{% endif %}" {% if step == "describe" %}aria-current="step"{% endif %}>
+          <span class="sh-mono block {% if step == 'describe' or step == 'review' or step == 'install' %}text-forest{% else %}text-muted{% endif %}">1 · Describe</span>
+          <span class="mt-1 block text-xs text-muted">{% if step == "describe" %}Current step{% else %}Complete{% endif %}</span>
+        </li>
+        <li class="border-t-2 pt-3 {% if step == 'review' or step == 'install' %}border-forest{% else %}border-ink/15{% endif %}" {% if step == "review" %}aria-current="step"{% endif %}>
+          <span class="sh-mono block {% if step == 'review' or step == 'install' %}text-forest{% else %}text-muted{% endif %}">2 · Review</span>
+          <span class="mt-1 block text-xs text-muted">{% if step == "review" %}Current step{% elif step == "install" %}Complete{% else %}Up next{% endif %}</span>
+        </li>
+        <li class="border-t-2 pt-3 {% if step == 'install' %}border-forest{% else %}border-ink/15{% endif %}" {% if step == "install" %}aria-current="step"{% endif %}>
+          <span class="sh-mono block {% if step == 'install' %}text-forest{% else %}text-muted{% endif %}">3 · Install</span>
+          <span class="mt-1 block text-xs text-muted">{% if step == "install" %}Current step{% else %}Up next{% endif %}</span>
+        </li>
+      </ol>
+    </nav>
   </header>
 
-  <section class="sh-panel p-5 md:p-6" aria-labelledby="event-catalog-title">
-    <div class="mb-6">
-      <p class="sh-mono mb-1 text-muted">Step 1</p>
-      <h2 id="event-catalog-title" class="text-xl font-semibold">Event catalog</h2>
-      <p class="mt-2 text-sm leading-6 text-muted">Use stable lowercase event names. Numeric sum and average metrics require a unit.</p>
-    </div>
-    <form method="post" class="space-y-5">
-      {% csrf_token %}
-      <input type="hidden" name="action" value="events">
-      {{ event_formset.management_form }}
-      {% if event_formset.non_form_errors %}<div class="border border-danger bg-coral/10 p-3 text-sm text-danger">{{ event_formset.non_form_errors }}</div>{% endif %}
-      {% for form in event_formset %}
-        <fieldset class="grid gap-4 border border-ink/15 bg-paper/40 p-4 md:grid-cols-2">
-          {{ form.id }}
-          <div><label class="mb-2 block text-sm font-medium" for="{{ form.event_name.id_for_label }}">Event name</label>{{ form.event_name }}{{ form.event_name.errors }}</div>
-          <div><label class="mb-2 block text-sm font-medium" for="{{ form.display_name.id_for_label }}">Display name</label>{{ form.display_name }}{{ form.display_name.errors }}</div>
-          <div class="md:col-span-2"><label class="mb-2 block text-sm font-medium" for="{{ form.description.id_for_label }}">When should it fire?</label>{{ form.description }}{{ form.description.errors }}</div>
-          <div><label class="mb-2 block text-sm font-medium" for="{{ form.aggregation.id_for_label }}">Aggregation</label>{{ form.aggregation }}{{ form.aggregation.errors }}</div>
-          <div><label class="mb-2 block text-sm font-medium" for="{{ form.unit.id_for_label }}">Unit</label>{{ form.unit }}{{ form.unit.errors }}</div>
-          {% if form.instance.pk %}<label class="flex items-center gap-2 text-sm text-danger">{{ form.DELETE }} Delete this event</label>{{ form.DELETE.errors }}{% endif %}
-          {% if form.non_field_errors %}<div class="md:col-span-2 text-sm text-danger">{{ form.non_field_errors }}</div>{% endif %}
-        </fieldset>
-      {% endfor %}
-      <button class="min-h-11 rounded-[2px] bg-forest px-5 font-medium text-white hover:bg-ink">Save event catalog</button>
-    </form>
-  </section>
+  {% if step == "describe" %}
+    <section class="sh-panel p-5 md:p-8" aria-labelledby="describe-title">
+      <p class="sh-mono mb-2 text-muted">AI-assisted setup</p>
+      <h2 id="describe-title" class="text-2xl font-semibold tracking-tight">What do you want to track?</h2>
+      <p id="goal-intent-help" class="mt-2 max-w-3xl text-sm leading-6 text-muted">Describe meaningful product outcomes and the moments that prove they happened. SiteHits will propose stable events, measurement rules, and an optional activation journey.</p>
 
-  <section class="sh-panel p-5 md:p-6" aria-labelledby="activation-title">
-    <div class="mb-6">
-      <p class="sh-mono mb-1 text-muted">Step 2</p>
-      <h2 id="activation-title" class="text-xl font-semibold">Activation funnel</h2>
-      <p class="mt-2 text-sm leading-6 text-muted">Each actor enters the cohort at their first start event and converts at their first later goal event.</p>
-    </div>
-    <form method="post" class="space-y-5">
-      {% csrf_token %}
-      <input type="hidden" name="action" value="activation">
-      <label class="flex items-center gap-2 text-sm font-medium">{{ activation_form.enabled }} Enable activation reporting</label>
-      <div class="grid gap-4 md:grid-cols-2">
-        <div><label class="mb-2 block text-sm font-medium" for="{{ activation_form.start_event.id_for_label }}">Start event</label>{{ activation_form.start_event }}{{ activation_form.start_event.errors }}</div>
-        <div><label class="mb-2 block text-sm font-medium" for="{{ activation_form.goal_event.id_for_label }}">Goal event</label>{{ activation_form.goal_event }}{{ activation_form.goal_event.errors }}</div>
+      {% if goal_error %}<div class="mt-5 border border-coral bg-coral/10 p-4 text-sm text-danger" role="alert">{{ goal_error }}</div>{% endif %}
+
+      <form method="post" class="mt-6 space-y-5" data-busy-form>
+        {% csrf_token %}
+        <input type="hidden" name="action" value="goal_draft">
+        <label class="block text-sm font-medium" for="{{ goal_intent_form.intent.id_for_label }}">Describe the outcomes that matter</label>
+        {{ goal_intent_form.intent }}
+        {% for error in goal_intent_form.intent.errors %}<p class="text-sm text-danger" id="goal-intent-error">{{ error }}</p>{% endfor %}
+        {% for error in goal_intent_form.non_field_errors %}<p class="text-sm text-danger">{{ error }}</p>{% endfor %}
+
+        <div class="border-t border-ink/10 pt-5">
+          <p class="sh-mono mb-3 text-muted">Example outcomes</p>
+          <div class="grid gap-3 md:grid-cols-3">
+            <button type="button" data-goal-example="Track completed signup and activation when a person creates their first project." class="min-h-11 border border-ink/15 bg-white px-3 py-2 text-left text-sm transition-colors hover:border-forest">Signup → first value</button>
+            <button type="button" data-goal-example="Measure how many people successfully use our key feature for the first time." class="min-h-11 border border-ink/15 bg-white px-3 py-2 text-left text-sm transition-colors hover:border-forest">Key feature adoption</button>
+            <button type="button" data-goal-example="Track confirmed subscription revenue, summed in TRY." class="min-h-11 border border-ink/15 bg-white px-3 py-2 text-left text-sm transition-colors hover:border-forest">Subscription revenue</button>
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-4 border-t border-ink/10 pt-5 sm:flex-row sm:items-center sm:justify-between">
+          <p id="goal-intent-privacy" class="text-sm leading-6 text-muted">Nothing is saved until you review and approve the plan. Do not paste credentials or personal data.</p>
+          <button type="submit" data-pending-label="Drafting plan…" class="min-h-12 shrink-0 rounded-[2px] bg-forest px-6 font-medium text-white transition-colors hover:bg-ink">Draft tracking plan</button>
+        </div>
+        <p class="min-h-5 text-sm text-muted" role="status" aria-live="polite" data-busy-status></p>
+      </form>
+    </section>
+  {% elif step == "review" and goal_plan %}
+    <section class="sh-panel p-5 md:p-8" aria-labelledby="review-title">
+      <p class="sh-mono mb-2 text-muted">Step 2 of 3 · Review</p>
+      <h2 id="review-title" class="text-2xl font-semibold tracking-tight">Review your tracking plan</h2>
+      <p class="mt-2 text-sm leading-6 text-muted">Check the outcomes and assumptions before SiteHits saves anything.</p>
+
+      {% if goal_error %}<div class="mt-5 border border-coral bg-coral/10 p-4 text-sm text-danger" role="alert">{{ goal_error }}</div>{% endif %}
+
+      <blockquote class="mt-6 border-l-2 border-forest bg-paper px-4 py-3 text-sm leading-6 text-muted">“{{ goal_intent }}”</blockquote>
+
+      <div class="mt-6">
+        <h3 class="text-xl font-semibold">{{ goal_plan.title }}</h3>
+        <p class="mt-1 text-sm leading-6 text-muted">{{ goal_plan.summary }}</p>
       </div>
-      {{ activation_form.non_field_errors }}
-      <button class="min-h-11 rounded-[2px] bg-forest px-5 font-medium text-white hover:bg-ink">Save activation funnel</button>
-    </form>
-  </section>
 
-  <section class="sh-panel p-5 md:p-6" aria-labelledby="agent-instruction-title">
-    <p class="sh-mono mb-1 text-muted">Step 3</p>
-    <h2 id="agent-instruction-title" class="text-xl font-semibold">Install with your agent</h2>
-    <p class="mt-2 text-sm leading-6 text-muted">The private key belongs only in the tracked application’s server environment.</p>
-    <label class="mt-5 block text-sm font-medium" for="server-event-settings">Server environment</label>
-    <textarea id="server-event-settings" readonly class="mt-2 min-h-28 w-full border border-ink/15 bg-paper p-4 font-mono text-xs leading-6">{{ server_event_settings }}</textarea>
-    <button type="button" data-copy="server-event-settings" class="mt-2 min-h-10 border border-ink/15 bg-white px-4 text-sm font-medium hover:border-forest">Copy environment</button>
-    <label class="mt-6 block text-sm font-medium" for="product-agent-instruction">Instruction for your agent</label>
-    <textarea id="product-agent-instruction" readonly class="mt-2 min-h-96 w-full border border-ink/15 bg-paper p-4 font-mono text-xs leading-6">{{ agent_instruction }}</textarea>
-    <button type="button" data-copy="product-agent-instruction" class="mt-2 min-h-10 bg-forest px-4 text-sm font-medium text-white hover:bg-ink">Copy agent instruction</button>
-    <p id="copy-status" class="mt-3 text-sm text-success" role="status" aria-live="polite"></p>
-  </section>
+      <div class="mt-6 divide-y divide-ink/10 border-y border-ink/15">
+        {% for change in goal_plan.event_changes %}
+          <article class="grid gap-3 py-5 md:grid-cols-[1.05fr_.9fr_1.2fr] md:gap-6">
+            <div>
+              <div class="flex flex-wrap items-center gap-2">
+                <h4 class="font-semibold">{{ change.proposed.display_name }}</h4>
+                <span class="sh-mono border px-2 py-1 {% if change.action == 'added' %}border-success/40 text-success{% elif change.action == 'reused' %}border-forest/30 text-forest{% else %}border-coral text-danger{% endif %}">{% if change.action == "added" %}Added{% elif change.action == "reused" %}Reused{% else %}Changed{% endif %}</span>
+              </div>
+              <p class="mt-2 font-mono text-xs text-muted">{{ change.proposed.event_name }}</p>
+            </div>
+            <div>
+              <p class="sh-mono text-muted">Measurement</p>
+              <p class="mt-2 text-sm leading-6">
+                {% if change.proposed.aggregation == "unique_actors" %}Count each identified actor once
+                {% elif change.proposed.aggregation == "count" %}Count every completed occurrence
+                {% elif change.proposed.aggregation == "sum" %}Add values in {{ change.proposed.unit }}
+                {% else %}Average values in {{ change.proposed.unit }}{% endif %}
+              </p>
+            </div>
+            <div>
+              <p class="sh-mono text-muted">When it fires</p>
+              <p class="mt-2 text-sm leading-6">{{ change.proposed.description }}</p>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+
+      {% if goal_activation_summary %}
+        <div class="mt-5 border border-forest/20 bg-forest-soft/45 p-4">
+          <p class="sh-mono text-forest">Activation journey</p>
+          <p class="mt-2 font-medium">{{ goal_activation_summary.start }} → {{ goal_activation_summary.goal }}</p>
+          <p class="mt-1 text-sm leading-6 text-muted">Each identified actor starts at the first start event and converts at their first later goal event.</p>
+        </div>
+      {% endif %}
+
+      {% if goal_plan.assumptions %}
+        <div class="mt-5 border border-forest/20 bg-forest-soft/35 p-4">
+          <p class="sh-mono text-forest">Assumptions</p>
+          <ul class="mt-2 list-disc space-y-1 pl-5 text-sm leading-6">
+            {% for assumption in goal_plan.assumptions %}<li>{{ assumption }}</li>{% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+
+      {% if goal_plan.unsupported_reasons or goal_plan.conflicts %}
+        <div class="mt-5 border border-coral bg-coral/10 p-4 text-danger" role="alert">
+          <p class="sh-mono">Needs a change</p>
+          <ul class="mt-2 list-disc space-y-1 pl-5 text-sm leading-6">
+            {% for reason in goal_plan.unsupported_reasons %}<li>{{ reason }}</li>{% endfor %}
+            {% for conflict in goal_plan.conflicts %}<li>{{ conflict }}</li>{% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+
+      {% if goal_plan.warnings and not goal_plan.clarification %}
+        <div class="mt-5 border border-ink/15 bg-paper p-4">
+          <p class="sh-mono text-muted">Review notes</p>
+          <ul class="mt-2 list-disc space-y-1 pl-5 text-sm leading-6">
+            {% for warning in goal_plan.warnings %}<li>{{ warning }}</li>{% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+
+      {% if goal_plan.clarification %}
+        <section class="mt-5 border border-coral bg-coral/10 p-4" aria-labelledby="clarification-title">
+          <p class="sh-mono text-danger">One question before approval</p>
+          <h3 id="clarification-title" class="mt-2 font-semibold">{{ goal_plan.clarification }}</h3>
+          <form method="post" class="mt-4 space-y-3" data-busy-form>
+            {% csrf_token %}
+            <input type="hidden" name="action" value="goal_clarify">
+            {{ goal_clarification_form.draft_id }}
+            <label class="block text-sm font-medium" for="{{ goal_clarification_form.clarification.id_for_label }}">Your answer</label>
+            {{ goal_clarification_form.clarification }}
+            {% for error in goal_clarification_form.clarification.errors %}<p class="text-sm text-danger">{{ error }}</p>{% endfor %}
+            <button type="submit" data-pending-label="Updating plan…" class="min-h-11 rounded-[2px] bg-forest px-5 font-medium text-white hover:bg-ink">Answer and update plan</button>
+            <p class="min-h-5 text-sm text-muted" role="status" aria-live="polite" data-busy-status></p>
+          </form>
+        </section>
+      {% endif %}
+
+      <details class="mt-5 border border-ink/15 bg-paper">
+        <summary class="min-h-11 cursor-pointer px-4 py-3 font-medium">Implementation details</summary>
+        <div class="border-t border-ink/10 p-4 font-mono text-xs leading-6">
+          {% for change in goal_plan.event_changes %}
+            <p><strong>{{ change.proposed.event_name }}</strong> · {{ change.proposed.aggregation }}{% if change.proposed.unit %} · {{ change.proposed.unit }}{% endif %}{% if change.changed_fields %} · changes: {{ change.changed_fields|join:", " }}{% endif %}</p>
+          {% endfor %}
+          {% if goal_plan.activation %}<p class="mt-3">activation: {{ goal_plan.activation.start_event }} → {{ goal_plan.activation.goal_event }}</p>{% endif %}
+        </div>
+      </details>
+
+      <p class="mt-6 text-sm text-muted">Nothing has been saved yet.</p>
+      <div class="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+        {% if goal_plan.can_install %}
+          <form method="post" data-busy-form>
+            {% csrf_token %}
+            <input type="hidden" name="action" value="goal_confirm">
+            {{ goal_confirm_form.draft_id }}
+            <button type="submit" data-pending-label="Creating instruction…" class="min-h-12 w-full rounded-[2px] bg-forest px-6 font-medium text-white hover:bg-ink sm:w-auto">Approve &amp; create instruction</button>
+            <p class="min-h-5 text-sm text-muted" role="status" aria-live="polite" data-busy-status></p>
+          </form>
+        {% endif %}
+        <a href="{% url 'product-metrics-settings' site.slug %}?step=describe&amp;draft={{ goal_draft_id }}" class="inline-flex min-h-11 items-center justify-center border border-ink/15 bg-white px-5 text-sm font-medium hover:border-forest">Edit description</a>
+      </div>
+    </section>
+  {% elif step == "install" %}
+    <section class="sh-panel p-5 md:p-8" aria-labelledby="install-title">
+      <p class="sh-mono mb-2 text-success">Step 3 of 3 · Install</p>
+      <h2 id="install-title" class="text-2xl font-semibold tracking-tight">Your tracking plan is ready</h2>
+      <p class="mt-2 text-sm leading-6 text-muted">The approved catalog is saved. Add the environment values to the tracked application, then give the instruction to your coding agent.</p>
+      {% if saved == "plan" %}<p class="mt-4 border border-success/30 bg-forest-soft/45 p-3 text-sm text-success" role="status">Tracking plan approved and saved.</p>{% endif %}
+
+      <div class="mt-6 border-y border-ink/15 py-4">
+        <p class="sh-mono text-muted">Approved outcomes</p>
+        {% if definitions %}
+          <ul class="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+            {% for definition in definitions %}<li><span class="font-medium">{{ definition.display_name }}</span> <span class="font-mono text-xs text-muted">{{ definition.event_name }}</span></li>{% endfor %}
+          </ul>
+        {% else %}
+          <p class="mt-2 text-sm text-muted">No product events are configured yet.</p>
+        {% endif %}
+        {% if activation %}<p class="mt-3 text-sm"><span class="font-medium">Activation:</span> {{ activation.start_event.display_name }} → {{ activation.goal_event.display_name }}</p>{% endif %}
+      </div>
+
+      <section class="mt-7" aria-labelledby="environment-title">
+        <h3 id="environment-title" class="text-lg font-semibold">Server environment</h3>
+        <p class="mt-1 text-sm leading-6 text-muted">The private key is masked by default and never sent to the planning model.</p>
+        <div class="mt-4 grid gap-4 md:grid-cols-2">
+          <div class="md:col-span-2">
+            <label class="mb-2 block text-sm font-medium" for="server-event-endpoint">Event endpoint</label>
+            <input id="server-event-endpoint" readonly value="{{ server_event_endpoint }}" class="min-h-11 w-full border border-ink/15 bg-paper px-3 font-mono text-xs">
+          </div>
+          <div>
+            <label class="mb-2 block text-sm font-medium" for="sitehits-site-key">Site key</label>
+            <input id="sitehits-site-key" readonly value="{{ site.public_key }}" class="min-h-11 w-full border border-ink/15 bg-paper px-3 font-mono text-xs">
+          </div>
+          <div>
+            <label class="mb-2 block text-sm font-medium" for="sitehits-server-event-key">Private server key</label>
+            <div class="flex">
+              <input id="sitehits-server-event-key" type="password" readonly value="{{ site.server_event_key }}" class="min-h-11 min-w-0 flex-1 border border-ink/15 bg-paper px-3 font-mono text-xs">
+              <button type="button" data-toggle-secret aria-controls="sitehits-server-event-key" aria-pressed="false" class="min-h-11 border border-l-0 border-ink/15 bg-white px-4 text-sm font-medium hover:border-forest">Show</button>
+            </div>
+          </div>
+        </div>
+        <button type="button" data-copy-environment class="mt-3 min-h-11 border border-ink/15 bg-white px-4 text-sm font-medium hover:border-forest">Copy environment</button>
+      </section>
+
+      <section class="mt-8" aria-labelledby="instruction-title">
+        <h3 id="instruction-title" class="text-lg font-semibold">Instruction for your agent</h3>
+        <p class="mt-1 text-sm leading-6 text-muted">This instruction is generated deterministically from the approved catalog. It references the private key as an environment variable.</p>
+        <textarea id="product-agent-instruction" readonly class="mt-3 min-h-96 w-full border border-ink/15 bg-paper p-4 font-mono text-xs leading-6">{{ agent_instruction }}</textarea>
+        <button type="button" data-copy-target="product-agent-instruction" class="mt-3 min-h-11 rounded-[2px] bg-forest px-5 text-sm font-medium text-white hover:bg-ink">Copy agent instruction</button>
+      </section>
+
+      <p id="copy-status" class="mt-4 min-h-5 text-sm text-success" role="status" aria-live="polite"></p>
+      <div class="mt-7 flex flex-col gap-3 border-t border-ink/10 pt-5 sm:flex-row">
+        <a href="{% url 'dashboard-site' site.slug %}" class="inline-flex min-h-11 items-center justify-center rounded-[2px] bg-forest px-5 font-medium text-white hover:bg-ink">Back to {{ site.name }} dashboard</a>
+        <a href="{% url 'product-metrics-settings' site.slug %}" class="inline-flex min-h-11 items-center justify-center border border-ink/15 bg-white px-5 font-medium hover:border-forest">Edit tracking plan</a>
+      </div>
+    </section>
+  {% endif %}
+
+  <details id="advanced-setup" class="border-t border-ink/15 pt-5" {% if advanced_open %}open{% endif %}>
+    <summary class="min-h-11 cursor-pointer text-sm font-medium text-muted hover:text-forest">Advanced setup</summary>
+    <p class="mt-2 max-w-2xl text-sm leading-6 text-muted">Manually edit technical event IDs, aggregations, units, deletion, and activation mapping.</p>
+
+    <div class="mt-6 space-y-6">
+      <section class="sh-panel p-5 md:p-6" aria-labelledby="event-catalog-title">
+        <div class="mb-6">
+          <h2 id="event-catalog-title" class="text-xl font-semibold">Event catalog</h2>
+          <p class="mt-2 text-sm leading-6 text-muted">Use stable lowercase event names. Numeric sum and average metrics require a unit.</p>
+        </div>
+        <form method="post" class="space-y-5">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="events">
+          {{ event_formset.management_form }}
+          {% if event_formset.non_form_errors %}<div class="border border-danger bg-coral/10 p-3 text-sm text-danger">{{ event_formset.non_form_errors }}</div>{% endif %}
+          {% for form in event_formset %}
+            <fieldset class="grid gap-4 border border-ink/15 bg-paper/40 p-4 md:grid-cols-2">
+              {{ form.id }}
+              <div><label class="mb-2 block text-sm font-medium" for="{{ form.event_name.id_for_label }}">Event name</label>{{ form.event_name }}{{ form.event_name.errors }}</div>
+              <div><label class="mb-2 block text-sm font-medium" for="{{ form.display_name.id_for_label }}">Display name</label>{{ form.display_name }}{{ form.display_name.errors }}</div>
+              <div class="md:col-span-2"><label class="mb-2 block text-sm font-medium" for="{{ form.description.id_for_label }}">When should it fire?</label>{{ form.description }}{{ form.description.errors }}</div>
+              <div><label class="mb-2 block text-sm font-medium" for="{{ form.aggregation.id_for_label }}">Aggregation</label>{{ form.aggregation }}{{ form.aggregation.errors }}</div>
+              <div><label class="mb-2 block text-sm font-medium" for="{{ form.unit.id_for_label }}">Unit</label>{{ form.unit }}{{ form.unit.errors }}</div>
+              {% if form.instance.pk %}<label class="flex items-center gap-2 text-sm text-danger">{{ form.DELETE }} Delete this event</label>{{ form.DELETE.errors }}{% endif %}
+              {% if form.non_field_errors %}<div class="md:col-span-2 text-sm text-danger">{{ form.non_field_errors }}</div>{% endif %}
+            </fieldset>
+          {% endfor %}
+          <button class="min-h-11 rounded-[2px] bg-forest px-5 font-medium text-white hover:bg-ink">Save event catalog</button>
+        </form>
+      </section>
+
+      <section class="sh-panel p-5 md:p-6" aria-labelledby="activation-title">
+        <div class="mb-6">
+          <h2 id="activation-title" class="text-xl font-semibold">Activation funnel</h2>
+          <p class="mt-2 text-sm leading-6 text-muted">Each actor enters at their first start event and converts at their first later goal event.</p>
+        </div>
+        <form method="post" class="space-y-5">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="activation">
+          <label class="flex items-center gap-2 text-sm font-medium">{{ activation_form.enabled }} Enable activation reporting</label>
+          <div class="grid gap-4 md:grid-cols-2">
+            <div><label class="mb-2 block text-sm font-medium" for="{{ activation_form.start_event.id_for_label }}">Start event</label>{{ activation_form.start_event }}{{ activation_form.start_event.errors }}</div>
+            <div><label class="mb-2 block text-sm font-medium" for="{{ activation_form.goal_event.id_for_label }}">Goal event</label>{{ activation_form.goal_event }}{{ activation_form.goal_event.errors }}</div>
+          </div>
+          {{ activation_form.non_field_errors }}
+          <button class="min-h-11 rounded-[2px] bg-forest px-5 font-medium text-white hover:bg-ink">Save activation funnel</button>
+        </form>
+      </section>
+    </div>
+  </details>
 </main>
 {% endblock %}
 
 {% block scripts %}
-<script>
-  document.querySelectorAll("[data-copy]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const target = document.getElementById(button.dataset.copy);
-      target.focus();
-      target.select();
-      try {
-        await navigator.clipboard.writeText(target.value);
-        document.getElementById("copy-status").textContent = "Copied to the clipboard.";
-      } catch (error) {
-        document.getElementById("copy-status").textContent = "Text selected; copy it from the field.";
-      }
-    });
-  });
-</script>
+<script src="{% static 'dashboard/product_metrics_settings.js' %}" defer></script>
 {% endblock %}

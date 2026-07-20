@@ -1,51 +1,50 @@
-# Design QA: all-sites comparison table
+# Design QA — AI-assisted product metrics
 
-## Comparison target
+Date: 2026-07-20
 
-- Source visual truth: `/Users/onurmatik/.codex/visualizations/2026/07/15/019f648e-0553-7f60-b853-813a7d0ed490/sitehits-dashboard-audit/04-superdesign-comparison-table.png`
-- Browser-rendered desktop implementation: `/Users/onurmatik/.codex/visualizations/2026/07/15/019f648e-0553-7f60-b853-813a7d0ed490/sitehits-dashboard-audit/05-all-sites-implemented-desktop.png`
-- Browser-rendered mobile implementation: `/Users/onurmatik/.codex/visualizations/2026/07/15/019f648e-0553-7f60-b853-813a7d0ed490/sitehits-dashboard-audit/06-all-sites-implemented-mobile.png`
-- Full-view combined comparison: `/Users/onurmatik/.codex/visualizations/2026/07/15/019f648e-0553-7f60-b853-813a7d0ed490/sitehits-dashboard-audit/07-reference-vs-implementation.png`
-- Primary viewport: 1280 x 720
-- Responsive viewport: 390 x 844
-- State: authenticated superuser, last seven days, daily granularity, two active sites with live local analytics data
+## Source visual truth
 
-The full comparison keeps the reference and implementation at the same 1280 x 720 viewport. The table remains large enough to judge directly, so a separate focused crop was not needed.
+- Current technical-form reference: `/Users/onurmatik/.codex/attachments/48731775-1791-40e7-b90d-84ef1e5283e7/image-1.png`
+- Describe direction: `/Users/onurmatik/.codex/generated_images/019f7f10-d7e3-76a1-a8c2-ea1453a663a4/exec-0e1aa469-34e4-4850-8728-9a1a493ef509.png`
+- Review direction: `/Users/onurmatik/.codex/generated_images/019f7f10-d7e3-76a1-a8c2-ea1453a663a4/exec-84f21eae-fdc6-47e8-a476-462ff8cdff42.png`
+- Install direction: `/Users/onurmatik/.codex/generated_images/019f7f10-d7e3-76a1-a8c2-ea1453a663a4/exec-20c92937-67d3-47dc-a630-24de7b18ec0d.png`
 
-## Findings
+The three directions were treated as consecutive states of one flow: Describe → Review → Install.
 
-- No actionable P0, P1, or P2 differences remain.
-- The implementation matches the selected direction's hierarchy: site-performance table first, one row per site, five comparable metrics with period deltas, per-site detail links, an aggregate-summary divider, and the aggregate chart below it.
-- The first comparison found the table about 20px taller than the reference and used an underlined desktop action. Desktop header/row padding and action styling were tightened; the final table height is 232.5px, matching the reference's approximately 232px frame.
-- The reference uses illustrative values and UTC. The implementation intentionally renders current database values and the product's configured Europe/Istanbul reporting timezone.
-- The reference includes a small arrow beside each detail action. The checked-in product has no matching icon-library asset, so the implementation keeps the text link without inventing a replacement asset.
+## Implementation evidence
 
-## Required fidelity surfaces
+- Desktop Describe, 1280 px: `.superdesign/qa/describe-desktop.png`
+- Desktop Review, 1280 px: `.superdesign/qa/review-desktop.png`
+- Desktop Install, 1280 px: `.superdesign/qa/install-desktop.png`
+- Mobile Install, 390 × 844: `.superdesign/qa/install-mobile-390x844.png`
+- Same-input full-view comparison: `.superdesign/qa/desktop-comparison.png`
+- Focused responsive comparison: `.superdesign/qa/install-mobile-comparison.png`
 
-- Fonts and typography: the existing SiteHits sans, mono metadata, tabular numerals, weights, and uppercase labels are preserved.
-- Spacing and layout rhythm: the desktop frame, table header, two compact rows, aggregate divider, and chart align closely with the selected reference. Mobile converts each row into a two-column metric grid without horizontal scrolling.
-- Colors and visual tokens: panel white, paper background, ink, muted ink, forest, success, danger, coral, and hairline borders all use checked-in SiteHits tokens.
-- Image quality and asset fidelity: no new raster or decorative assets were needed. Existing brand assets remain unchanged.
-- Copy and content: "Site performance", the five metric labels, "View details", "All-site aggregate summary", and "Aggregate volume" mirror the selected direction while using live site names and domains.
+The full-view board places each source direction next to its implemented state. The focused mobile capture covers the most crowded region—approved outcomes, environment values, masked secret, and the start of the agent instruction—so a second crop was not necessary.
 
-## Interaction and responsive verification
+## Fidelity review
 
-- Opened the authenticated all-sites dashboard in the Codex in-app browser at 1280 x 720 and 390 x 844.
-- Confirmed two site rows, five populated metrics per row, and no placeholder em dashes after data loading.
-- Confirmed page width equals scroll width at both breakpoints: 1280/1280 and 390/390.
-- Confirmed each detail link preserves `period=last7d` and `granularity=daily` and points to its corresponding site dashboard.
-- Confirmed the mobile detail action has a 40px minimum touch height.
-- Confirmed the selected-site dashboard still renders five KPI cards, the embed-widget control, and no comparison table.
-- Checked browser console warnings/errors on all-sites desktop, all-sites mobile, and the selected-site route: none.
+- Typography: restrained sans-serif hierarchy, compact labels, monospace identifiers, and readable body copy match the product's technical-minimal character.
+- Spacing and layout: the desktop flow keeps a narrow centered work surface and clear step rhythm; mobile stacks controls without horizontal overflow (`clientWidth = scrollWidth = 390`).
+- Colors: neutral surfaces, subtle borders, and the existing SiteHits green are used consistently for progress, status, and primary actions.
+- Images and assets: the flow is intentionally asset-light. Decorative reference icons were omitted because the product has no matching icon system and they do not change meaning.
+- Copy and content: all three states preserve the reference intent while making the sequence explicit. The implementation retains the existing Product metrics header and Advanced setup fallback.
 
-## Comparison history
+## Interaction QA
 
-1. The first implementation comparison confirmed the correct hierarchy and data but found a taller table and a visually heavy desktop link treatment.
-2. Desktop table padding was tightened and the detail action was aligned to the reference; mobile retained a larger underlined touch target for usability.
-3. The final combined comparison found no actionable P0/P1/P2 mismatch.
+- Describe: example outcomes populate the textarea; drafting disables the submit control and exposes an accessible busy state; no database record is saved.
+- Review: proposed events, Added/Reused/Changed status, aggregation, firing conditions, activation, assumptions, conflicts, and an optional clarification are visible before approval.
+- Install: confirmation persists atomically, the private key starts masked, Show/Hide works, environment and agent-instruction copy actions work, and the generated prompt references an environment variable rather than embedding the secret.
+- Responsive: the 390 × 844 viewport keeps step labels, fields, buttons, and long identifiers inside the viewport.
+- JavaScript: no page-level error appeared during browser interaction. The interaction suite also covers loading, copy, masking, and clipboard fallback behavior; direct browser-log retrieval was unavailable after the isolated QA server was shut down.
 
-## Follow-up polish
+## Comparison history and findings
 
-- The source's tiny trailing arrow is optional P3 polish if a matching product icon library is introduced later.
+1. Initial live-model output interpreted three independent outcomes as a three-step funnel and blocked approval. This was a semantic P1 issue.
+2. The planning instruction was tightened to allow at most one sensible two-event activation and to track remaining outcomes independently.
+3. A second real-model pass returned an approvable plan with signup, first project creation, confirmed TRY subscription revenue, and a signup → first project activation.
+4. Final source-versus-implementation review found no remaining P0, P1, or P2 visual or interaction defects.
+
+Intentional variance: the Install state uses compact approved-outcome rows instead of decorative icon cards. It retains all required information and better matches the existing SiteHits component language.
 
 final result: passed

@@ -1,6 +1,6 @@
-# SiteHits Layouts
+# SiteHits layouts
 
-Updated from the current source on 2026-07-15.
+Updated from the current source on 2026-07-20 for `/dashboard/<site-slug>/product-metrics`.
 
 ## Base document
 
@@ -32,62 +32,95 @@ Source: `templates/base.html` (complete shared implementation).
       data-fr-project="site-hits"
       data-fr-label="Feedback"
       data-fr-position="right"
-      data-fr-color="#06B6D4"
+      data-fr-color="#1A3C2B"
       defer
     ></script>
   </body>
 </html>
 ```
 
-The first external script is nonvisual SiteHits self-tracking. The second creates the third-party feedback launcher at the right viewport edge; it is visible at runtime but its implementation is not in this repository.
+The self-tracking script is nonvisual. The FeatureRequest script injects a visible feedback launcher at the right edge at runtime, but its implementation is external and it must not be recreated as part of the product-metrics design.
 
-## Authenticated dashboard shell
+## Current product-metrics settings layout
 
-Complete implementation: `templates/dashboard/dashboard.html`.
+Complete page implementation: `templates/dashboard/product_metrics_settings.html` (93 lines; pass it whole).
 
 ```text
-#dashboard-app (min-height: 100vh; site/period/granularity data attributes)
-├─ sticky 64px header
-│  ├─ SiteHits CSS-built mark and wordmark
-│  ├─ downward site menu
-│  ├─ operational status
-│  └─ logout form
-├─ main (max-width: 1440px; 16px mobile / 32px desktop padding)
-│  ├─ title, aggregate/site metadata, and period controls
-│  ├─ inline error
-│  ├─ five human-traffic KPI cards
-│  ├─ full-width 300px traffic chart
-│  ├─ bot traffic section
-│  │  ├─ five category cards
-│  │  └─ two-column provider/path breakdown
-│  └─ two-column human-traffic breakdown grid
-├─ footer (max-width: 1440px)
-├─ add-site dialog
-└─ selected-site-only public-widget dialog
+body (paper canvas from shared CSS)
+└─ main (min-height: 100vh; max-width: 1024px; 16px padding → 32px at md; 32px vertical gaps)
+   ├─ page header
+   │  ├─ back link to selected-site dashboard
+   │  ├─ Product metrics title and supporting sentence
+   │  └─ optional Settings saved status
+   ├─ Event catalog panel
+   │  ├─ Step 1 label and explanatory header
+   │  ├─ repeated event fieldsets (1 column → 2 at md)
+   │  └─ Save event catalog action
+   ├─ Activation funnel panel
+   │  ├─ Step 2 label and explanation
+   │  ├─ enable checkbox and start/goal selects (1 column → 2 at md)
+   │  └─ Save activation funnel action
+   └─ Install with your agent panel
+      ├─ Step 3 label and explanation
+      ├─ server-environment textarea + copy action
+      ├─ generated-agent-instruction textarea + copy action
+      └─ polite copy-status line
 ```
 
-There is no sidebar. KPI grids are one column by default, two from `sm`, and five from `lg`. Two-column breakdown regions collapse to one column below `lg`. The period control remains horizontally scrollable. The site dropdown is viewport-wide with 16px insets on mobile and a 256px anchored menu from `sm` upward.
+### Actual render branch
 
-## Actual `/dashboard/all` render branch
+`dashboard.views.product_metrics_settings()` always renders this template for an authenticated user who owns the selected site (or a superuser). There is no responsive or feature-flag branch that swaps layouts. Conditional pieces are:
 
-The route calls `dashboard.views.dashboard(request, site_slug="all")`. `selected_site` remains `None`, therefore:
+- `Settings saved` appears when `?saved=events` or `?saved=activation` is present.
+- Existing event rows include a delete checkbox; the one extra blank form does not.
+- Form and non-field errors render only after invalid POSTs.
+- Activation selects contain the selected site's current event definitions.
+- Generated environment and agent-instruction text always render, even when no events exist.
 
-- The title and site trigger both read `All sites`.
-- The subtitle reads `Aggregate across active properties; visitors are not deduplicated between sites.`
-- The site dropdown lists all sites visible to the current user and marks `All sites` current.
-- The period control is shown.
-- The `Embed widget` button and its dialog are not rendered.
-- Bot traffic setup links are not rendered.
-- All remaining KPI/chart/breakdown structures are the same as the single-site route and are populated as one aggregate dataset.
+This route extends `base.html` directly. It does **not** include the sticky dashboard navigation, dashboard site menu, dashboard footer, or a SiteHits brand lockup. The only route context is the `← <site name>` back link.
 
-Do not reproduce the selected-site-only controls when drafting `/dashboard/all`.
+## Required Describe → Review → Install layout
 
-## Other layouts
+The selected direction is one three-step journey, not three alternatives. Preserve the current route and SiteHits visual language while changing the information hierarchy.
 
-- **Anonymous landing** (`templates/onboarding/landing.html`): 64px public header, centered conversion hero and URL form, then a wide dashboard preview capped at 1200px.
-- **Passwordless auth** (`templates/registration/signup.html`): centered panel capped at 448px, real logo, Google action, divider, email magic-link form, and sent/error branches.
-- **Legacy login** (`templates/registration/login.html`): centered 448px username/password panel.
-- **Onboarding confirmation** (`templates/onboarding/confirm.html`): centered panel capped at 576px.
-- **Tracker installation** (`templates/onboarding/install.html`): centered panel capped at 672px with script, agent, server-side bot setup, copy states, and final actions.
-- **Authentication error** (`templates/socialaccount/authentication_error.html`): centered 448px error panel.
-- **Public widget** (`templates/dashboard/widget.html`): standalone, frameable document. It deliberately does not extend `base.html`, loads `static/css/widget.css`, refreshes every 60 seconds, and is capped at 400px by 600px.
+```text
+body (paper canvas)
+└─ main (min-height: 100vh; max-width: 1024px; 16px → 32px outer padding)
+   ├─ flow header
+   │  ├─ back link to selected-site dashboard
+   │  ├─ Product metrics context/title
+   │  └─ three-step progress: Describe — Review — Install
+   ├─ one dominant state panel
+   │  ├─ Describe: question + natural-language textarea + helper/examples + primary action
+   │  ├─ Review: proposed plan + activation + assumptions/unsupported items + approve/edit actions
+   │  └─ Install: approved summary + environment/instruction copy surfaces + completion actions
+   └─ optional Advanced setup disclosure
+      └─ existing manual event catalog and activation controls
+```
+
+Only the active state occupies the dominant panel. Avoid showing all three full forms/panels at once. Completed steps remain visible through the progress indicator and can be represented as completed text states; do not make users choose a "design 1/2/3" option.
+
+## Desktop composition
+
+- Keep the existing `max-w-5xl` outer width and `md:p-8` gutters.
+- The flow header may place the step indicator below the title or align it in a second row; it must not look like dashboard period tabs.
+- Use a single primary panel with 20px mobile / 24–32px desktop padding.
+- Describe should give the textarea most of the visual weight; do not surround it with a dense technical form.
+- Review may use a two-area layout only when it improves scanning: main proposed plan and a narrower assumptions/activation summary. It must collapse cleanly.
+- Install code/instruction surfaces may stack; copying is more important than side-by-side density. Long instruction content must wrap or scroll inside its own surface without page-level horizontal scrolling.
+- Primary actions sit at the end of the reading order. Secondary back/edit actions remain visually quieter.
+
+## Mobile composition
+
+- Retain 16px viewport gutters; never create page-level horizontal scrolling.
+- Render the three steps as a compact ordered row or stacked progress summary with full text labels. The current step must be announced textually.
+- All event-plan rows stack their label, firing condition, and measurement.
+- Action groups stack into full-width 48px targets when necessary.
+- Technical identifiers and code may scroll within bounded paper surfaces.
+- Keep advanced manual controls collapsed by default; if opened, preserve the existing one-column field layout.
+
+## Related layouts
+
+- `templates/onboarding/install.html`: centered `max-w-2xl` install/copy panel and the closest reusable visual reference for the new Install state.
+- `templates/dashboard/dashboard.html`: selected-site dashboard entry point and downstream product-metrics report. Its sticky authenticated shell is contextual reference only; it is not part of the current settings route.
+- `templates/onboarding/landing.html`, `templates/onboarding/confirm.html`, and registration templates are outside this design task.

@@ -18,6 +18,7 @@ dependencies = [
   "django-allauth[socialaccount]>=65,<66",
   "django-ses>=4.7,<5",
   "PyJWT>=2.10,<3",
+  "openai>=2.46,<3",
 ]
 
 [dependency-groups]

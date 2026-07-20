@@ -410,12 +410,20 @@ def test_product_metric_settings_builds_catalog_activation_and_agent_prompt(
 
     page = client.get(url)
     assert page.status_code == 200
+    assert b"What do you want to track?" in page.content
+    assert b"Advanced setup" in page.content
     assert b"signup_completed" in page.content
     assert b"first_project_created" in page.content
-    assert b"https://stats.example/api/server-events" in page.content
-    assert tracked_site.server_event_key.encode() in page.content
-    assert b"data-actor-token" in page.content
-    assert b"durably successful" in page.content
+
+    install_page = client.get(f"{url}?step=install")
+    assert install_page.status_code == 200
+    assert b"https://stats.example/api/server-events" in install_page.content
+    assert tracked_site.server_event_key.encode() in install_page.content
+    assert b'type="password"' in install_page.content
+    assert tracked_site.server_event_key not in install_page.context["agent_instruction"]
+    assert "$SITEHITS_SERVER_EVENT_KEY" in install_page.context["agent_instruction"]
+    assert b"data-actor-token" in install_page.content
+    assert b"durably successful" in install_page.content
     assert ActivationDefinition.objects.filter(site=tracked_site).exists()
 
     dashboard = client.get(reverse("dashboard-site", args=[tracked_site.slug]))

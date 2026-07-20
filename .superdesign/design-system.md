@@ -1,287 +1,377 @@
-# SiteHits Dashboard Design System
+# SiteHits product-metrics design system
 
 ## Scope and source of truth
 
-This document describes the current authenticated SiteHits reporting UI at `/dashboard/all` and `/dashboard/<site-slug>`, plus the explicit requirement for the next all-sites design pass. It is intentionally dashboard-specific; onboarding, authentication, the public widget document, and speculative future components are outside its visual contract unless they appear inside a dashboard dialog.
+This document governs the redesign of `/dashboard/<site-slug>/product-metrics` from a long technical form into one continuous AI-assisted **Describe → Review → Install** journey. The three labels are consecutive steps, not three alternative designs.
 
-Use these files as the implementation source of truth, in this order:
+Use these sources in order:
 
-1. `templates/dashboard/dashboard.html` — rendered structure, copy, layout, responsive classes, controls, dialogs, and states.
-2. `assets/design-system.css` and `assets/tailwind.css` — tokens, global behavior, and shared component utilities.
-3. `dashboard/static/dashboard/dashboard.js` — rendered metric rows, charts, interaction behavior, loading/empty/error states, and motion.
-4. `dashboard/views.py`, `analytics/reporting.py`, and `analytics/api.py` — route, access, reporting, and metric semantics.
-5. `templates/base.html` and `static/sitehits-mark.svg` — document shell, favicon/brand asset, and the externally injected feedback control.
+1. `templates/dashboard/product_metrics_settings.html` — current rendered page and reproduction ground truth.
+2. `assets/design-system.css` and `assets/tailwind.css` — exact visual tokens and reusable CSS conventions.
+3. `templates/base.html` — document shell and loaded assets.
+4. `dashboard/forms.py` — current manual field classes, labels, placeholders, and validation surface.
+5. `templates/onboarding/install.html` — closest existing install/copy composition.
+6. `dashboard/product_tracking.py` — deterministic instruction content and environment shape.
+7. `dashboard/views.py:233:315`, `analytics/models.py:107:188`, and `dashboard/urls.py` — route, authorization, persistence, and model limits.
+8. `templates/dashboard/dashboard.html:94:103,213:258` — entry point and downstream product-metrics reporting vocabulary.
 
-Do not invent fonts, colors, gradients, radii, shadows, navigation, or data states that are not defined here or in those files.
+Do not infer the target layout from the dashboard header: the current product-metrics route extends `base.html` directly and does not render the authenticated sticky dashboard shell.
 
-## Product context and jobs to be done
+## Product context
 
-SiteHits is a small, cookieless, multi-site analytics service. Authenticated owners can inspect their own active sites; superusers can inspect every active site. The dashboard is an operational reporting surface, not a marketing page.
+SiteHits is a small, cookieless, multi-site analytics service. Product events are authoritative business events emitted by the tracked application's backend (or identified browser events signed by that backend). A selected site may define:
 
-Primary dashboard jobs:
+- product events measured as event count, unique actors, sum, or average;
+- a unit for numeric sum/average metrics; and
+- one optional two-event activation funnel.
 
-- Understand traffic volume, engagement, acquisition, content, geography, devices, campaigns, and custom events for a selected reporting period.
-- Compare the current period with the immediately preceding period.
-- Inspect known server-side crawler traffic separately from browser analytics.
-- Switch quickly between all visible sites and one site without losing the selected period.
-- Add a site from the dashboard.
-- For a selected site, reach server-side bot setup and generate a public last-hour widget embed.
-- On `/dashboard/all`, understand the overall portfolio at a glance without obscuring which site produced which metrics.
+The settings page's job is to turn business intent into a safe, validated tracking contract and a reliable implementation instruction for a coding agent. It is not an analytics dashboard, schema editor by default, chatbot, or open-ended AI playground.
 
-## Routes and reporting architecture
+## User problem and target outcome
 
-- `/dashboard/all` is the all-visible-sites dashboard.
-- `/dashboard/<site-slug>` is the single-site dashboard.
-- Both routes render the same template and application shell.
-- The client requests `overview`, `timeseries`, `bots`, and eight breakdown endpoints with `site` and `period` query parameters.
-- Valid periods are Today, 24H, 7D, 30D, and 90D. Today/24H use hourly granularity; 7D/30D/90D use daily granularity in the rendered period links.
-- The single-site report uses that site's timezone. The all-sites report uses the application timezone.
-- Visitor and session identities are scoped to a site. The current all-sites totals combine site-scoped counts and therefore never imply cross-site person deduplication.
+The current page asks users to fill technical fields (`event_name`, `display_name`, firing condition, aggregation, unit), configure activation separately, and then understand a long generated instruction. That sequence assumes event-model expertise and shows all work at once.
 
-## Explicit all-sites redesign requirement
+The target experience asks one understandable question first:
 
-The current `/dashboard/all` page shows one aggregate KPI row, one aggregate traffic chart, one aggregate bot section, and aggregate breakdown tables. Its subtitle warns that visitors are not deduplicated between sites, but the page does not expose site attribution inside those metrics.
+> What do you want to track?
 
-The next design must make site identity explicit in the metrics shown on `/dashboard/all` so a user can assess every site's condition at a glance.
+SiteHits then drafts a structured plan, lets the user verify the business meaning, and only after explicit approval persists the plan and generates the final agent instruction.
 
-- The five core metrics must be attributable per site: Visitors, Sessions, Pageviews, Bounce rate, and Avg. session.
-- Every site-level metric group must have a clear site name; domain may support identification when useful.
-- Current-period values and previous-period deltas must remain legible for each site.
-- Aggregate values may remain as a clearly labelled secondary summary, but they must not be the only view of performance.
-- Do not visually imply that visitors are deduplicated across sites.
-- Preserve `/dashboard/<site-slug>` as the focused detail route and preserve the site selector as the way to move into it.
-- Keep the existing period control global to the page so site comparisons use one consistent time window.
-- The requirement defines information hierarchy, not a preselected component solution. Do not assume cards, tables, tabs, or accordions unless the approved design chooses them.
+Success means a user can describe outcomes such as signup, activation, adoption, and revenue without naming events or choosing aggregation jargon; still understand exactly what will be tracked before saving; and hand a clear instruction to their coding agent.
+
+## Hard interaction model
+
+```text
+Describe business intent
+→ AI returns a strict structured draft
+→ server validates against SiteHits capabilities
+→ one focused clarification only when materially necessary
+→ Review human-readable plan and implementation details
+→ explicit user approval
+→ atomic persistence
+→ deterministic agent instruction
+→ Install/copy handoff
+```
+
+Hard rules:
+
+- Describe, Review, and Install form one ordered journey.
+- Show one dominant state at a time; do not stack three full panels like the current page.
+- Nothing is saved during Describe or initial Review.
+- Approval is the only action that persists the proposed plan.
+- AI drafts structured data; the final agent instruction is compiled from the approved, validated plan.
+- Never send OpenAI credentials, site private keys, or `.env` contents to the AI model or Superdesign.
+- Never silently discard unsupported intent, invent unsupported configuration, delete existing definitions, or overwrite meaning without review.
+- Keep the existing manual forms available as secondary `Advanced setup`, collapsed by default.
+
+## Information architecture
+
+### Persistent flow frame
+
+- Back link: `← <site name>` returning to the selected-site dashboard.
+- Product context: `Product metrics`.
+- Short sentence explaining that SiteHits turns important outcomes into a tracking plan and agent instruction.
+- Three-step progress indicator: `Describe`, `Review`, `Install`.
+- One centered dominant `.sh-panel` for the active state.
+- Optional saved/draft/error status near the flow header or active panel, never detached at the bottom of the page.
+
+The current page's `max-w-5xl`, `p-4 md:p-8`, and warm paper canvas remain the outer layout contract.
+
+### Step progress semantics
+
+- Use an ordered list or similarly meaningful structure.
+- Always show all three text labels.
+- Current state uses explicit text or `aria-current="step"`; completed steps include a check/complete label; upcoming steps are muted.
+- A connecting hairline is acceptable. Avoid circles/pills large enough to make this look like generic SaaS onboarding.
+- Do not implement a tablist unless completed states are actually navigable.
+- On mobile, compress spacing or stack metadata, not the labels into unreadable abbreviations.
+
+## State 1 — Describe
+
+### Content
+
+- Eyebrow: `Step 1 of 3 · Describe`.
+- Primary heading/question: `What do you want to track?`.
+- Helper: ask for meaningful product outcomes and moments in ordinary language; SiteHits will turn them into a reviewable plan.
+- One large, visibly labelled textarea.
+- Example/placeholder:
+  `I want to know how many people sign up, create their first project, and how much subscription revenue we collect in TRY.`
+- Reassurance: `Nothing is saved until you review and approve the plan.`
+- Primary action: `Draft tracking plan`.
+- Secondary disclosure/link: `Advanced setup` for manual configuration.
+
+Optional example prompts may cover:
+
+- `Track signup → first value activation`
+- `Measure a key feature's adoption`
+- `Track confirmed subscription revenue`
+
+Keep examples compact and secondary. Clicking one may populate or append to the textarea; examples must not imply these are the only supported goals.
+
+### Visual priority
+
+- The question and textarea dominate.
+- Avoid chat bubbles, assistant avatars, AI gradients, sparkle motifs, floating suggestion cards, or a multi-message transcript.
+- The page should feel like a precise setup tool, not a chatbot.
+- The primary action appears after the reassurance in the natural reading order.
+
+### States
+
+- **Empty/invalid**: concise linked error beneath the textarea.
+- **Drafting**: disable repeat submission, keep button geometry stable, use text such as `Drafting plan…`, and announce progress through a status region.
+- **Clarification**: present one focused question with simple choices/free text and keep the original description visible. Example: `Should signup count after account creation or after email verification?`
+- **Recoverable failure**: coral/danger alert, original input retained, retry available.
+
+Do not ask a user to choose event identifiers, database terminology, aggregation enum values, or JWT/collector implementation details.
+
+## State 2 — Review
+
+### Content
+
+- Eyebrow: `Step 2 of 3 · Review`.
+- Heading: `Review your tracking plan`.
+- Safety note: `Nothing has been saved yet.`
+- Human-readable proposed event list.
+- Optional activation journey.
+- Assumptions and unsupported/attention items.
+- Native `Implementation details` disclosure.
+- Secondary `Edit description` action.
+- Primary `Approve & create instruction` action.
+
+### Event presentation
+
+Each proposed event must expose business meaning before machine fields:
+
+1. Display label/outcome.
+2. When it fires.
+3. How it is measured.
+4. Unit when numeric.
+
+Representative plan:
+
+| Outcome | When it fires | Measurement | Technical detail |
+| --- | --- | --- | --- |
+| Completed sign-ups | After account creation is durably saved | Count each person once | `signup_completed` · `unique_actors` |
+| First project created | After a person's first project is durably saved | Count each person once | `first_project_created` · `unique_actors` |
+| Subscription revenue | After payment is durably confirmed | Sum successful payments in TRY | `subscription_revenue` · `sum` · `TRY` |
+
+Do not use this representative content as hidden real data. It is safe design copy only.
+
+### Activation
+
+- Show only when the draft includes activation.
+- Use a compact labelled relationship: `Completed sign-up → First project created`.
+- Explain that each identified actor enters at their first start event and converts at the first later goal event.
+- Do not depict a multi-step funnel or custom time-window control; the current model does not support them.
+
+### Assumptions and unsupported intent
+
+- Assumptions are explicit, plain language, and visually neutral (paper or restrained forest-soft surface).
+- Unsupported requests use clear attention/danger treatment and text. Examples include multi-step funnels, property-filtered goals, retention goals, and custom conversion windows.
+- A blocking issue prevents approval. A non-blocking assumption can be approved after review.
+- Existing catalogs need visible `Added`, `Reused`, or `Changed` status when relevant. Never imply silent deletion.
+
+### Implementation details
+
+Use a native `<details>` disclosure, collapsed by default, for:
+
+- stable `event_name`;
+- aggregation enum;
+- unit;
+- raw start/goal mapping; and
+- other machine-facing values.
+
+Technical text uses the existing mono stack and paper inset surface. Do not make these details the first content a user scans.
+
+## State 3 — Install
+
+### Content
+
+- Eyebrow: `Step 3 of 3 · Install`.
+- Heading such as `Your tracking plan is ready`.
+- Success status and compact approved-plan summary.
+- `Server environment` copy panel.
+- `Instruction for your agent` copy panel.
+- Private-key safety note.
+- Completion actions: `Back to <site> dashboard` and `Edit tracking plan`.
+
+### Environment panel
+
+The current environment shape is:
+
+```text
+SITEHITS_EVENT_ENDPOINT=https://sitehits.io/api/server-events
+SITEHITS_SITE_KEY=sh_…
+SITEHITS_SERVER_EVENT_KEY=shs_…
+```
+
+Design artifacts must use only placeholders/masked values. The user's actual UI may offer a deliberate `Copy environment` action, but the private value must never be passed to the AI model. The generated agent instruction refers to `Authorization: Bearer $SITEHITS_SERVER_EVENT_KEY` rather than embedding the secret in AI-authored content.
+
+### Agent instruction panel
+
+- Treat as a deterministic artifact generated from the approved plan.
+- Show enough preview to identify its purpose; very long text lives in a bounded mono region or expandable preview.
+- Primary copy action is clear and adjacent to the artifact.
+- Copy state changes to `Copied`, announces success politely, then restores the label without layout shift.
+- Clipboard failure selects/exposes text and gives a manual-copy fallback.
+
+Reuse the composition and inline copy/check icon language from `templates/onboarding/install.html` rather than inventing a new code-editor aesthetic.
+
+## Advanced setup
+
+The current form remains available for expert/manual editing, but is secondary:
+
+- Use a native `<details>` block or a clearly secondary link.
+- Default collapsed.
+- Label it `Advanced setup`, with helper text explaining that it exposes event IDs, aggregations, units, and activation mapping.
+- When expanded, retain current field labels, widget classes, validation, delete safeguards, and save behavior.
+- Do not display Advanced setup expanded beside the natural-language Describe surface in the default state.
+
+## Capability boundaries shown honestly in UI
+
+Supported:
+
+- event count;
+- unique actors;
+- sum with unit;
+- average with unit; and
+- one two-event activation relationship.
+
+Unsupported in the current model:
+
+- multi-step funnels;
+- property-filtered goals;
+- retention/cohort-return goals;
+- custom conversion windows; and
+- more than one activation funnel.
+
+If intent needs an unsupported capability, Review says so. The design must not fake a configuration the backend cannot store.
 
 ## Visual character
 
-The existing dashboard is a technical-minimalist analytics interface with a flat paper canvas and structural hairlines.
+SiteHits is technical-minimalist, calm, precise, and operational.
 
-- Calm, precise, compact, and operational.
-- Flat white panels on a warm off-white page.
-- One-pixel borders provide structure; decorative elevation does not.
-- Sans-serif headings and values pair with small uppercase monospace metadata.
-- Forest is the primary action and data color. Coral is a restrained chart, focus, and error accent. Gold is available but is not used in the current dashboard template.
-- No gradients, glass, blur, decorative textures, inflated rounded cards, or decorative drop shadows.
-- Default radius is 2px. Fully round shapes are limited to small status dots and data bars.
+- Warm off-white paper canvas.
+- Flat white panels.
+- One-pixel structural borders.
+- 2px radii.
+- Sans headings/body paired with restrained uppercase mono metadata.
+- Forest for primary action and approved/current structure.
+- Coral for focus and error/attention.
+- Success green for saved/approved/copied feedback.
+- No decorative elevation.
+
+Forbidden departures:
+
+- gradients;
+- glass, blur, or glow;
+- large rounded cards or pills;
+- decorative shadows;
+- purple/blue AI styling;
+- assistant avatars, sparkles, or chat transcripts;
+- photography, illustrations, emoji, or flags; and
+- a sidebar or unrelated dashboard navigation.
 
 ## Color tokens
 
-| Role | CSS/Tailwind token | Value | Current dashboard use |
+| Role | Token | Value | Use |
 | --- | --- | --- | --- |
-| Canvas | `--sh-paper` / `paper` | `#f7f7f5` | Page background, hover rows, inset fields, dialog preview half |
-| Panel | `--sh-panel` / `panel` | `#ffffff` | Header, controls, cards, panels, dialogs |
-| Primary text | `--sh-ink` / `ink` | `#17211b` | Headings, labels, values, dark CTA hover |
-| Secondary text | `--sh-muted` / `muted` | `#667069` | Supporting copy, metadata, inactive controls, chart ticks |
-| Primary/action | `--sh-forest` / `forest` | `#1a3c2b` | Filled actions, selected period, lead accents, bars, visitor series |
-| Soft primary | `--sh-forest-soft` / `forest-soft` | `#dce7df` | Available soft forest surface token; not a dominant current dashboard surface |
-| Accent/error/focus | `--sh-coral` / `coral` | `#e78468` | Pageview series, global focus outline, error border/tint |
-| Tertiary accent | `--sh-gold` / `gold` | `#d6ae45` | Available token; not used by the current dashboard template |
-| Success | `--sh-success` / `success` | `#287a4b` | Operational dot, positive KPI delta, successful bot status |
-| Danger text | `--sh-danger` / `danger` | `#a94736` | Negative KPI delta, errors, failed bot status |
-| Hairline | `--sh-hairline` | `rgba(23, 33, 27, 0.14)` | Canonical structural border |
+| Canvas | `paper` | `#f7f7f5` | Page and inset code surfaces |
+| Panel | `panel` | `#ffffff` | Dominant flow panel and controls |
+| Text | `ink` | `#17211b` | Headings, body, dark hover |
+| Secondary | `muted` | `#667069` | Helpers, upcoming steps |
+| Primary | `forest` | `#1a3c2b` | Primary action, active/completed structure |
+| Soft primary | `forest-soft` | `#dce7df` | Restrained assumption/completed surface |
+| Focus/attention | `coral` | `#e78468` | Focus outline, alert border/tint |
+| Success | `success` | `#287a4b` | Approved/copied/saved status |
+| Error | `danger` | `#a94736` | Error/unsupported text |
+| Optional accent | `gold` | `#d6ae45` | Available but unnecessary here |
+| Hairline | `--sh-hairline` | `rgba(23,33,27,.14)` | Structural border |
 
-Implementation also uses ink opacity borders directly: `ink/10`, `ink/15`, and `ink/20`. Chart grid lines use `rgba(23,33,27,.08)`, and the visitor area fill uses `rgba(26,60,43,.08)`. Dialog backdrops use `ink/30`.
-
-The external Feature Request script injects its own right-edge feedback control with `#06B6D4`. Treat this cyan as an external integration exception, not as a SiteHits design token and not as a color to reuse in dashboard components.
+Ink opacity utilities `ink/10`, `ink/15`, and `ink/20` are canonical. Coral tints use `coral/10`. Do not introduce colors outside this table.
 
 ## Typography
 
-### Families
-
 - Sans: `"Space Grotesk", Inter, ui-sans-serif, system-ui, sans-serif`.
 - Mono: `"JetBrains Mono", "SFMono-Regular", Consolas, monospace`.
-- No remote font files are currently loaded. The chosen installed/system fallback is the real runtime font, so layouts must remain stable without Space Grotesk or JetBrains Mono.
-- Global text rendering uses antialiasing.
-- Numeric metrics and counts use tabular figures through `.sh-tabular`.
+- No remote font is loaded; allow system fallback.
+- Main question/page title: approximately 28–30px, semibold, tight tracking.
+- State/section title: 20px, semibold.
+- Standard content and controls: 14–16px.
+- Helper copy: 14px / 24px, muted.
+- `.sh-mono`: 11px uppercase, `0.08em` tracking.
+- Technical preview: 12px mono / approximately 24px.
+- Sentence case for headings/actions; uppercase only through `.sh-mono`.
 
-### Current dashboard scale
+## Spacing, sizing, borders, and elevation
 
-| Element | Size / line height | Weight / treatment |
-| --- | --- | --- |
-| SiteHits header wordmark | 18px / 28px | 700, tight tracking |
-| Dashboard page title | 28px / 34px | 600, tight tracking |
-| Section title | 20px / 28px | 600, tight tracking |
-| Dialog title | 18px / 28px | 600, tight tracking |
-| KPI value | 30px / 36px | 600, tabular |
-| Standard body/control | 14px / 20px | 400 or 500 |
-| Explanatory body | 14px / 24px | 400, muted |
-| Table row label/count | 13px | 500; count is tabular |
-| Secondary metadata | 12px / 16px | regular |
-| `.sh-mono` label | 11px | uppercase, `0.08em` tracking |
-| Compact mono metadata | 10px | uppercase, `0.08em` tracking |
+- Tailwind 4px rhythm; prefer 8, 12, 16, 20, 24, 32, and 40px.
+- Outer max width: 1024px (`max-w-5xl`).
+- Outer padding: 16px, increasing to 32px at `md`.
+- Main vertical rhythm: 24–32px.
+- Primary panel padding: 20px mobile, 24–32px desktop.
+- Form/action targets: at least 44px; state-transition actions 48px when practical.
+- Describe textarea: roughly 160–220px minimum height, responsive width.
+- Default radius: 2px.
+- Borders: one pixel, normally `ink/15` or `ink/20`.
+- No box shadows. Structure comes from canvas/panel contrast and hairlines.
+- Global focus-visible: 2px coral outline with 2px offset.
 
-Use sentence case for headings and actions. Uppercase transformation belongs only to `.sh-mono` metadata and period controls.
+## Responsive behavior
 
-## Spacing, sizing, radii, borders, and elevation
+Tailwind breakpoints in current use: `sm` 640px, `md` 768px, `lg` 1024px.
 
-The implementation uses Tailwind's 4px spacing scale. The most visible dashboard intervals are 8, 12, 16, 20, 24, 32, and 40px.
+- Mobile-first; 16px viewport gutters and no page-level horizontal scrolling.
+- Full step names remain visible. Compress connector spacing before abbreviating labels.
+- Review event rows stack measurement and firing detail below the label.
+- Multi-column review composition collapses to one column below `md`/`lg`.
+- Button groups stack full-width on narrow screens, then become inline from `sm`.
+- Long IDs/code scroll or wrap inside their own bounded surface.
+- Advanced form fields retain their existing single-column mobile and two-column `md` layout.
+- At 200% zoom, reading order remains Describe content → primary action → Advanced setup.
 
-- Authenticated header: 64px high; 16px horizontal padding, increasing to 24px at `md`.
-- Main container: 16px padding and 24px vertical section gaps; 32px padding and 32px gaps at `md`.
-- Page heading/action cluster gap: 20px; action row gap: 12px.
-- KPI and bot KPI grids: 16px gap; cards use 20px padding.
-- Standard chart panel: 16px padding, increasing to 24px at `md`.
-- Breakdown grid: 24px gap.
-- Breakdown header: 20px horizontal and 16px vertical padding.
-- Breakdown row: minimum 48px tall with 12px horizontal padding.
-- Footer: 16/32px horizontal padding, 40px vertical padding.
-- Header/menu/dialog utility controls: minimum 40px tall.
-- Primary form and copy actions: minimum 48px tall.
-- Default component radius: 2px.
-- Panel border: one pixel, normally `ink/15` or canonical hairline.
-- Dividers: one pixel at `ink/10` or `ink/15`.
-- There are no dashboard box-shadow classes. Use the `ink/30` modal backdrop to separate dialogs instead of adding elevation.
-- Focus-visible: 2px coral outline with 2px offset on every interactive element.
+## Feedback, loading, and error patterns
 
-## Page layout
-
-### Application shell
-
-- Light-only document (`color-scheme: light`) on the paper canvas.
-- Sticky, full-width header at `z-40`.
-- Main and footer are centered and capped at 1440px.
-- No sidebar.
-- The footer places `SiteHits MVP` left and operational links right; it stacks on mobile and becomes a row from `sm`.
-
-### Header
-
-- Left cluster: CSS-built 32px forest square with a centered 16px white/50 outlined square, SiteHits wordmark hidden below `sm`, 24px divider hidden below `md`, then the site selector.
-- Site trigger is at least 40px tall. Its label truncates at 128px on mobile, 192px at `sm`, and 288px at `md`.
-- Right cluster: Operational status is hidden below `sm`; Logout remains available.
-- The selector menu always opens downward. On mobile it is fixed below the header with 16px left/right insets; from `sm` it is an absolute 256px-wide dropdown aligned to the trigger.
-- Menu rows are at least 40px high. The active row uses the paper background, medium text, a forest checkmark, and `aria-current="page"`.
-- The menu ends with a divider and New site action.
-
-### Dashboard heading and periods
-
-- Heading and controls stack by default, then sit in a bottom-aligned row from `md`.
-- Eyebrow: `Privacy-first traffic intelligence` in muted mono.
-- Single-site subtitle shows allowed domains.
-- Current all-sites subtitle reads: `Aggregate across active properties; visitors are not deduplicated between sites.`
-- Selected-site views may show the bordered Embed widget action before the period control; all-sites does not.
-- The period control is one flat bordered segmented group with horizontal overflow contained inside the control. Each segment is at least 40px tall; active is forest with white text.
-
-### Core KPI grid
-
-- One column by default, two from `sm`, five from `lg`.
-- Current order: Visitors, Sessions, Pageviews, Bounce rate, Avg. session.
-- Each card has a mono label, large tabular value, and a 12px delta.
-- Visitors has a 2px forest top accent; the remaining cards do not.
-- Positive/negative coloring follows metric meaning: a lower bounce-rate delta is success; higher deltas are success for the other metrics; no prior comparison displays `New` in muted text.
-
-### Traffic chart
-
-- Full-width bordered panel with a fixed 300px plot height.
-- Header contains title/timezone left and a small inline two-series key right.
-- Chart.js responsive line chart with index hover and no built-in legend.
-- Visitors: `#1a3c2b`, 2px stroke, 2px points, tension `0.28`, forest 8% area fill.
-- Pageviews: `#e78468`, 2px stroke, 2px points, tension `0.28`, no fill.
-- X-axis has no grid, hairline border, muted ticks, maximum ten tick labels.
-- Y-axis starts at zero, uses ink 8% grid, no axis border, and integer ticks.
-
-### Bot traffic section
-
-- Separate section below the human traffic chart, with `Server-side` eyebrow and `Bot traffic` title.
-- Header metadata reports user-agent matches and, when available, IP verification. Selected-site views also show Server setup.
-- Empty state is one bordered panel with explanatory copy and a selected-site setup action.
-- Populated state repeats a one/two/five-column KPI grid for Bot requests, AI answers, Indexing, Training, and Other.
-- Bot requests has the 2px forest top accent. Category cards show share percentage.
-- Provider and requested-path panels form a one-column grid, becoming two equal columns at `lg`.
-- Requested paths pair a truncated path with status and request count. Status is success for 2xx/3xx, danger for 4xx/5xx, and muted when unknown.
-
-### Traffic breakdowns
-
-- One column by default, two equal columns from `lg`.
-- Current panels: Top pages, Top referrers, Countries, Regions, Cities, Devices, Campaigns, and Custom events.
-- Each panel has a mono title, compact unit label, and ranked rows.
-- Rows use a 13px truncated label, 4px-high proportional forest data bar, and right-aligned 13px tabular count.
-- Current API defaults to at most eight rows per breakdown.
-
-### Dialogs
-
-- Native modal dialogs are centered, have transparent outer boxes, no decorative shadow, `ink/30` backdrop, 16px viewport inset, and a maximum height of viewport minus 32px.
-- Add website dialog: maximum 576px, bordered white panel, 20/24px responsive padding, domain control and read-only timezone context, full-width 48px forest action.
-- Embed widget dialog appears only on a selected-site dashboard: maximum 1024px; one column by default and two columns from `lg`; preview side uses paper and contains a 400 × 600 iframe; code side contains read-only monospace textareas and full-width copy actions.
-
-## Component and interaction patterns
-
-### Panels
-
-`.sh-panel` is the shared structural surface: white background, one-pixel `ink/15` border, and 2px radius. It has no built-in padding or shadow.
-
-### Buttons and links
-
-- Primary: forest background, white text, 2px radius; hover to ink.
-- Secondary: white background, ink text, `ink/15` border, 2px radius; hover strengthens border/text to forest.
-- Quiet: muted text without a containing surface; hover to ink.
-- Pending Add website state disables the action, preserves geometry, lowers opacity, uses `not-allowed`, and changes copy to `Adding website…`.
-
-### Site menu behavior
-
-- Trigger click toggles the menu and rotates the chevron 180 degrees.
-- Arrow Up/Down opens the menu and moves focus; within the menu, Arrow Up/Down wraps, Home/End jumps, and Escape closes and returns focus.
-- Outside click closes it.
-
-### Data rows and bars
-
-- Data bars use a 4px fully rounded forest/15 track and forest fill.
-- Rows keep a 48px minimum target/reading height and use paper only on hover.
-- Labels truncate rather than increasing row height; numeric values remain visible.
-
-### Feedback states
-
-- Loading: `.sh-skeleton` forest/10 blocks with pulse animation, sized to preserve the final breakdown layout.
-- KPI loading values use an em dash.
-- Empty breakdown: `No data in this period.` in muted 14px text with 20px padding.
-- Bot empty state preserves a full panel and explains the server collector.
-- Error: one shared inline alert above the metrics, coral border, coral 10% tint, danger text; no browser alert.
-- Copy success: button label becomes `Copied`, an `aria-live="polite"` line announces success, and the default label returns after two seconds. Clipboard failure selects the text and explains the fallback.
-
-## Responsive rules
-
-Tailwind default breakpoints used by the current dashboard are `sm` 640px, `md` 768px, and `lg` 1024px.
-
-- Mobile-first; all current dashboard information remains present at narrow widths.
-- Header wordmark and Operational status progressively hide, but navigation and Logout remain.
-- Site menu becomes a full available-width fixed dropdown on mobile.
-- Main padding grows from 16px to 32px at `md`.
-- Dashboard heading/actions change from stacked to a row at `md`.
-- KPI grids change 1 → 2 → 5 columns at base/`sm`/`lg`.
-- Breakdown and bot-detail grids change 1 → 2 columns at `lg`.
-- Period choices scroll horizontally within their own segmented control.
-- Dialogs remain 16px from the viewport edge and scroll internally when needed.
-- Embed preview/code stacks until `lg`; the iframe is `width: 100%` with a 400px maximum.
-- The site-attribution treatment introduced for `/dashboard/all` must keep every site's five metrics readable without page-level horizontal scrolling. Do not hide sites or core metrics on mobile.
-
-## Motion
-
-- Utility classes use short color and transform transitions; no continuous decorative animation is part of the dashboard.
-- Opening the site menu rotates the chevron through its existing transform transition.
-- The traffic chart animates once for 350ms on render.
-- Skeletons pulse while loading.
-- Copy feedback remains for 2000ms before resetting.
-- `prefers-reduced-motion: reduce` disables chart animation and globally reduces transition/animation durations to `0.01ms`, limits iterations to one, and disables smooth scrolling.
+- **Drafting**: disabled primary action with stable dimensions and visible `Drafting plan…`; status announced politely.
+- **Empty input**: field-associated danger text; do not use browser alert.
+- **Clarification**: one focused question in a bordered neutral/attention panel; preserve original response.
+- **AI/network failure**: coral border/tint, danger copy, retry; preserve input/draft.
+- **Invalid structured plan**: explain the conflicting item in Review and prevent approval.
+- **Approval pending**: stable `Creating instruction…` action, no duplicate submission.
+- **Saved/ready**: success text plus explicit statement; do not rely on a green check alone.
+- **Copy**: `Copied` label and polite live status for two seconds; fallback selects text.
 
 ## Accessibility and content rules
 
-- Preserve the global 2px coral focus-visible outline and 2px offset.
-- Keep native button, link, form, and dialog semantics.
-- Site menu exposes `aria-haspopup`, `aria-expanded`, `aria-controls`, `aria-current`, and full keyboard navigation.
-- Dashboard error uses `role="alert"`; copy status uses `aria-live="polite"`.
-- Every form field has a visible label; error text is associated with the domain field.
-- Use text plus color for status/delta meaning. Never rely on color alone.
-- Keep controls at least 40px tall; primary form/copy actions are 48px.
-- Use the dashboard's existing English, sentence-case product vocabulary.
-- Site identity on `/dashboard/all` must be textual and unambiguous; do not depend on color alone to distinguish sites.
-- Do not claim cross-site unique visitors, people, or identity resolution.
+- Keep native labels, textarea, buttons, links, forms, and `<details>` semantics.
+- Use `aria-current="step"` or explicit current-step text in the progress indicator.
+- Do not automatically move focus except to a newly displayed blocking clarification/error heading when necessary; preserve logical focus return when editing.
+- Associate helper and error text with the prompt field.
+- Use `role="alert"` for blocking failures and `aria-live="polite"` for drafting/copy/success status.
+- Status, step, assumption, and unsupported meaning always use text plus visual treatment.
+- Maintain 40px minimum keyboard/pointer targets; 44–48px for important actions.
+- Preserve entered text across validation and recoverable service errors.
+- English product copy remains concise and sentence case.
+- Site identity is always visible as text in the back link/page context.
 
-## Non-goals and fidelity constraints
+## Motion
 
-- Do not add a sidebar; the current navigation model is a compact header and site selector.
-- Do not redesign onboarding/authentication as part of the all-sites dashboard task.
-- Do not reuse the external feedback widget's cyan in SiteHits reporting UI.
-- Do not introduce decorative illustrations, stock photography, flags, gradients, glass effects, large radii, or shadows.
-- Do not replace current browser analytics and bot analytics with one undifferentiated metric set.
-- Do not remove the focused site route, add-site flow, bot setup, or selected-site embed action.
-- When producing design variants, use only the fonts, colors, spacing, radii, border, shadow, motion, and component styles defined in this design system.
+- Short color and transform transitions only.
+- No continuous decorative animation.
+- A restrained progress indicator is allowed while drafting, but textual status is mandatory.
+- `prefers-reduced-motion: reduce` collapses animation/transition duration and iteration count through existing global CSS.
+
+## Reproduction and design-draft context
+
+For a pixel-faithful current-page reproduction, pass all of:
+
+- `.superdesign/design-system.md`
+- `assets/design-system.css`
+- `assets/tailwind.css`
+- `templates/base.html`
+- `templates/dashboard/product_metrics_settings.html`
+- `dashboard/forms.py`
+- `dashboard/product_tracking.py`
+- `static/sitehits-mark.svg`
+
+For the approved redesign iteration, add `templates/onboarding/install.html` as copy/install visual context and retain the exact same core context files. None of these files exceeds 1000 lines, so pass them whole. Do not pass `.env*`, screenshots or rendered HTML containing live keys, database files, generated minified CSS, or vendor bundles.

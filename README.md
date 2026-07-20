@@ -148,6 +148,10 @@ The checked-in Fabric deploy task reads these values from the ignored
 environment, and fails its production checks when either value is missing or
 the client ID is not a Google web client ID.
 
+AI-assisted Product metrics planning requires `OPENAI_API_KEY`. The Fabric
+task also merges this key and optional `SITEHITS_GOAL_PLANNING_*` operational
+overrides from `.env-prod` into the preserved runtime environment.
+
 Both methods preserve the submitted website and resume at `/onboarding/`. New tracked sites are owned by the authenticated user; regular users can only open and query their own sites.
 
 The included Dockerfile builds Tailwind/Chart.js assets, collects static files, applies migrations, and starts Gunicorn. Health checks should target `/health/`.

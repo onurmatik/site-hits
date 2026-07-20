@@ -13,3 +13,4 @@ staticfiles/
 static/css/sitehits.css
 static/vendor/chart.umd.js*
 GeoLite2-Country.mmdb
+.superdesign/qa/

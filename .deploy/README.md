@@ -16,6 +16,7 @@ merges its supported non-empty values into the preserved
 unrelated runtime settings. The runtime env must include:
 
 ```text
+OPENAI_API_KEY=...
 AWS_SES_ACCESS_KEY_ID=...
 AWS_SES_SECRET_ACCESS_KEY=...
 AWS_SES_REGION_NAME=...
@@ -23,6 +24,11 @@ DEFAULT_FROM_EMAIL=SiteHits <hello@sitehits.io>
 GOOGLE_OAUTH_CLIENT_ID=...
 GOOGLE_OAUTH_CLIENT_SECRET=...
 ```
+
+`OPENAI_API_KEY` enables the AI-assisted Product metrics Describe → Review
+flow. Optional `SITEHITS_GOAL_PLANNING_MODEL`,
+`SITEHITS_GOAL_PLANNING_TIMEOUT_SECONDS`, and
+`SITEHITS_GOAL_PLANNING_RATE_LIMIT` values are merged by the same task.
 
 The SES region must be the region where the `sitehits.io` identity is verified.
 The Google OAuth web client must authorize this exact redirect URI:

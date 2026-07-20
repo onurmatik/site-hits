@@ -4,11 +4,66 @@ from django.forms import BaseModelFormSet, modelformset_factory
 from analytics.models import ActivationDefinition, ProductEventDefinition
 from analytics.privacy import EVENT_NAME_PATTERN, PROPERTY_NAME_PATTERN
 
+from .goal_planning import GoalPlanningServiceError, sanitize_goal_intent
+
 
 INPUT_CLASS = (
     "min-h-11 w-full rounded-[2px] border border-ink/20 bg-white px-3 "
     "outline-none focus:border-forest"
 )
+
+
+class GoalTrackingIntentForm(forms.Form):
+    intent = forms.CharField(
+        min_length=3,
+        max_length=4000,
+        widget=forms.Textarea(
+            attrs={
+                "class": (
+                    f"{INPUT_CLASS} min-h-44 resize-y px-4 py-3 text-base leading-7"
+                ),
+                "rows": 6,
+                "placeholder": (
+                    "I want to know how many people sign up, create their first project, "
+                    "and how much subscription revenue we collect in TRY."
+                ),
+                "aria-describedby": "goal-intent-help goal-intent-privacy",
+                "autocomplete": "off",
+            }
+        ),
+    )
+
+    def clean_intent(self):
+        try:
+            return sanitize_goal_intent(self.cleaned_data["intent"])
+        except GoalPlanningServiceError as exc:
+            raise forms.ValidationError(str(exc)) from exc
+
+
+class GoalClarificationForm(forms.Form):
+    draft_id = forms.CharField(max_length=128, widget=forms.HiddenInput)
+    clarification = forms.CharField(
+        min_length=1,
+        max_length=1000,
+        label="Your answer",
+        widget=forms.Textarea(
+            attrs={
+                "class": f"{INPUT_CLASS} min-h-24 resize-y px-4 py-3 leading-6",
+                "rows": 3,
+                "autocomplete": "off",
+            }
+        ),
+    )
+
+    def clean_clarification(self):
+        try:
+            return sanitize_goal_intent(self.cleaned_data["clarification"])
+        except GoalPlanningServiceError as exc:
+            raise forms.ValidationError(str(exc)) from exc
+
+
+class GoalPlanConfirmForm(forms.Form):
+    draft_id = forms.CharField(max_length=128, widget=forms.HiddenInput)
 
 
 class ProductEventDefinitionForm(forms.ModelForm):

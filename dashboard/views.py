@@ -1,4 +1,8 @@
+import hashlib
 from html import escape
+import json
+import secrets
+import time
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
@@ -6,7 +10,7 @@ from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
-from django.db import connection
+from django.db import IntegrityError, connection, transaction
 from django.http import HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -20,12 +24,31 @@ from analytics.reporting import last_hour_widget
 from analytics.models import ActivationDefinition, ProductEventDefinition
 from websites.models import TrackedSite
 
-from .forms import ActivationDefinitionForm, ProductEventDefinitionFormSet
+from .forms import (
+    ActivationDefinitionForm,
+    GoalClarificationForm,
+    GoalPlanConfirmForm,
+    GoalTrackingIntentForm,
+    ProductEventDefinitionFormSet,
+)
+from .goal_planning import (
+    GoalPlanningService,
+    GoalPlanningServiceError,
+    ReconciledGoalPlan,
+)
 from .product_tracking import product_tracking_agent_instruction, server_event_settings
 
 
 ONBOARDING_SESSION_KEY = "sitehits_onboarding_website"
 NEW_SITE_FORM_SESSION_KEY = "sitehits_new_site_form"
+GOAL_DRAFTS_SESSION_KEY = "sitehits_product_metric_drafts"
+GOAL_RATE_SESSION_KEY = "sitehits_product_metric_draft_attempts"
+GOAL_DRAFT_TTL_SECONDS = 30 * 60
+GOAL_MAX_SESSION_DRAFTS = 5
+
+
+class GoalCatalogChanged(RuntimeError):
+    pass
 
 
 def _website_details(value):
@@ -237,14 +260,320 @@ def _visible_site(request, site_slug):
     return get_object_or_404(sites, slug=site_slug)
 
 
+def _product_catalog_snapshot(site, *, lock=False):
+    definitions = ProductEventDefinition.objects.filter(site=site).order_by("event_name", "pk")
+    activation = ActivationDefinition.objects.filter(site=site).select_related(
+        "start_event",
+        "goal_event",
+    )
+    if lock:
+        definitions = definitions.select_for_update()
+        activation = activation.select_for_update()
+    definitions = list(definitions)
+    activation = activation.first()
+    payload = {
+        "events": [
+            {
+                "id": definition.pk,
+                "event_name": definition.event_name,
+                "display_name": definition.display_name,
+                "description": definition.description,
+                "aggregation": definition.aggregation,
+                "unit": definition.unit,
+                "updated_at": definition.updated_at.isoformat(),
+            }
+            for definition in definitions
+        ],
+        "activation": (
+            {
+                "id": activation.pk,
+                "start_event_id": activation.start_event_id,
+                "goal_event_id": activation.goal_event_id,
+                "updated_at": activation.updated_at.isoformat(),
+            }
+            if activation
+            else None
+        ),
+    }
+    serialized = json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+    fingerprint = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    return definitions, activation, fingerprint
+
+
+def _goal_session_drafts(request):
+    now = int(time.time())
+    stored = request.session.get(GOAL_DRAFTS_SESSION_KEY, {})
+    if not isinstance(stored, dict):
+        stored = {}
+    drafts = {
+        draft_id: draft
+        for draft_id, draft in stored.items()
+        if isinstance(draft_id, str)
+        and isinstance(draft, dict)
+        and isinstance(draft.get("created_at"), int)
+        and now - draft["created_at"] <= GOAL_DRAFT_TTL_SECONDS
+    }
+    if drafts != stored:
+        request.session[GOAL_DRAFTS_SESSION_KEY] = drafts
+    return drafts
+
+
+def _goal_draft_for_request(request, site, draft_id):
+    if not isinstance(draft_id, str) or not draft_id:
+        return None
+    draft = _goal_session_drafts(request).get(draft_id)
+    if not draft:
+        return None
+    if draft.get("site_id") != site.pk or draft.get("user_id") != request.user.pk:
+        return None
+    return draft
+
+
+def _store_goal_draft(
+    request,
+    site,
+    *,
+    intent,
+    plan,
+    catalog_fingerprint,
+    clarification_answer="",
+):
+    drafts = _goal_session_drafts(request)
+    if len(drafts) >= GOAL_MAX_SESSION_DRAFTS:
+        oldest = min(drafts, key=lambda draft_id: drafts[draft_id]["created_at"])
+        drafts.pop(oldest, None)
+    draft_id = secrets.token_urlsafe(24)
+    drafts[draft_id] = {
+        "site_id": site.pk,
+        "user_id": request.user.pk,
+        "created_at": int(time.time()),
+        "intent": intent,
+        "clarification_answer": clarification_answer,
+        "catalog_fingerprint": catalog_fingerprint,
+        "plan": plan.model_dump(mode="json"),
+    }
+    request.session[GOAL_DRAFTS_SESSION_KEY] = drafts
+    return draft_id
+
+
+def _delete_goal_draft(request, draft_id):
+    drafts = _goal_session_drafts(request)
+    if draft_id in drafts:
+        drafts.pop(draft_id, None)
+        request.session[GOAL_DRAFTS_SESSION_KEY] = drafts
+
+
+def _goal_rate_limit_allows_request(request):
+    limit = settings.SITEHITS_GOAL_PLANNING_RATE_LIMIT
+    if limit <= 0:
+        return True
+    now = int(time.time())
+    attempts = request.session.get(GOAL_RATE_SESSION_KEY, [])
+    if not isinstance(attempts, list):
+        attempts = []
+    attempts = [
+        attempt
+        for attempt in attempts
+        if isinstance(attempt, int) and now - attempt < 60 * 60
+    ]
+    if len(attempts) >= limit:
+        request.session[GOAL_RATE_SESSION_KEY] = attempts
+        return False
+    attempts.append(now)
+    request.session[GOAL_RATE_SESSION_KEY] = attempts
+    return True
+
+
+def _activation_summary(plan):
+    if not plan or not plan.activation:
+        return None
+    labels = {event.event_name: event.display_name for event in plan.events}
+    return {
+        "start": labels[plan.activation.start_event],
+        "goal": labels[plan.activation.goal_event],
+    }
+
+
+def _render_product_metrics(
+    request,
+    site,
+    *,
+    step="describe",
+    event_formset=None,
+    activation_form=None,
+    goal_intent_form=None,
+    goal_clarification_form=None,
+    goal_plan=None,
+    goal_draft_id="",
+    goal_intent="",
+    goal_error="",
+    saved="",
+    advanced_open=False,
+    status=200,
+):
+    definitions = ProductEventDefinition.objects.filter(site=site)
+    activation = ActivationDefinition.objects.filter(site=site).first()
+    if event_formset is None:
+        event_formset = ProductEventDefinitionFormSet(
+            queryset=definitions,
+            prefix="events",
+            site=site,
+        )
+    if activation_form is None:
+        activation_form = ActivationDefinitionForm(
+            instance=activation or ActivationDefinition(site=site),
+            prefix="activation",
+            site=site,
+        )
+    if goal_intent_form is None:
+        goal_intent_form = GoalTrackingIntentForm(
+            initial={"intent": goal_intent} if goal_intent else None
+        )
+    if goal_clarification_form is None and goal_draft_id:
+        goal_clarification_form = GoalClarificationForm(
+            initial={"draft_id": goal_draft_id}
+        )
+
+    return render(
+        request,
+        "dashboard/product_metrics_settings.html",
+        {
+            "site": site,
+            "definitions": definitions,
+            "activation": activation,
+            "event_formset": event_formset,
+            "activation_form": activation_form,
+            "server_event_settings": server_event_settings(site),
+            "server_event_endpoint": (
+                f"{settings.SITEHITS_BASE_URL}/api/server-events"
+            ),
+            "agent_instruction": product_tracking_agent_instruction(site),
+            "step": step,
+            "goal_intent_form": goal_intent_form,
+            "goal_clarification_form": goal_clarification_form,
+            "goal_confirm_form": (
+                GoalPlanConfirmForm(initial={"draft_id": goal_draft_id})
+                if goal_draft_id
+                else None
+            ),
+            "goal_plan": goal_plan,
+            "goal_activation_summary": _activation_summary(goal_plan),
+            "goal_draft_id": goal_draft_id,
+            "goal_intent": goal_intent,
+            "goal_error": goal_error,
+            "saved": saved,
+            "advanced_open": advanced_open,
+        },
+        status=status,
+    )
+
+
+def _draft_product_metrics_plan(
+    request,
+    site,
+    *,
+    intent,
+    planning_intent=None,
+    clarification_answer="",
+):
+    intent_form = GoalTrackingIntentForm(initial={"intent": intent})
+    if not settings.OPENAI_API_KEY:
+        return _render_product_metrics(
+            request,
+            site,
+            goal_intent_form=intent_form,
+            goal_error=(
+                "AI-assisted setup is not configured yet. Use Advanced setup or try again "
+                "after the server key is configured."
+            ),
+            status=503,
+        )
+    if not _goal_rate_limit_allows_request(request):
+        return _render_product_metrics(
+            request,
+            site,
+            goal_intent_form=intent_form,
+            goal_error="Too many drafts were requested. Try again in a little while.",
+            status=429,
+        )
+
+    definitions, _activation, fingerprint = _product_catalog_snapshot(site)
+    try:
+        plan = GoalPlanningService(
+            model=settings.SITEHITS_GOAL_PLANNING_MODEL,
+            api_key=settings.OPENAI_API_KEY,
+            timeout=settings.SITEHITS_GOAL_PLANNING_TIMEOUT_SECONDS,
+        ).plan(planning_intent or intent, definitions)
+    except GoalPlanningServiceError as exc:
+        status_by_code = {
+            "invalid_intent": 400,
+            "invalid_catalog": 409,
+            "invalid_plan": 502,
+            "empty_response": 502,
+        }
+        return _render_product_metrics(
+            request,
+            site,
+            goal_intent_form=intent_form,
+            goal_error=str(exc),
+            status=status_by_code.get(exc.code, 503),
+        )
+
+    draft_id = _store_goal_draft(
+        request,
+        site,
+        intent=intent,
+        plan=plan,
+        catalog_fingerprint=fingerprint,
+        clarification_answer=clarification_answer,
+    )
+    review_url = reverse("product-metrics-settings", args=[site.slug])
+    return redirect(f"{review_url}?step=review&draft={draft_id}")
+
+
+def _apply_goal_plan(site, plan, expected_fingerprint):
+    with transaction.atomic():
+        locked_site = TrackedSite.objects.select_for_update().get(pk=site.pk)
+        definitions, activation, fingerprint = _product_catalog_snapshot(
+            locked_site,
+            lock=True,
+        )
+        if fingerprint != expected_fingerprint:
+            raise GoalCatalogChanged
+
+        by_name = {definition.event_name: definition for definition in definitions}
+        for proposed in plan.events:
+            definition = by_name.get(proposed.event_name)
+            if definition is None:
+                definition = ProductEventDefinition(
+                    site=locked_site,
+                    event_name=proposed.event_name,
+                )
+            definition.display_name = proposed.display_name
+            definition.description = proposed.description
+            definition.aggregation = proposed.aggregation
+            definition.unit = proposed.unit
+            definition.full_clean()
+            definition.save()
+            by_name[proposed.event_name] = definition
+
+        if plan.activation:
+            configured = activation or ActivationDefinition(site=locked_site)
+            configured.start_event = by_name[plan.activation.start_event]
+            configured.goal_event = by_name[plan.activation.goal_event]
+            configured.full_clean()
+            configured.save()
+
+
 @login_required
 def product_metrics_settings(request, site_slug):
     site = _visible_site(request, site_slug)
     definitions = ProductEventDefinition.objects.filter(site=site)
     activation = ActivationDefinition.objects.filter(site=site).first()
     saved = request.GET.get("saved", "")
+    action = request.POST.get("action", "") if request.method == "POST" else ""
 
-    if request.method == "POST" and request.POST.get("action") == "events":
+    if action == "events":
         event_formset = ProductEventDefinitionFormSet(
             request.POST,
             queryset=definitions,
@@ -264,8 +593,19 @@ def product_metrics_settings(request, site_slug):
                 instance.site = site
                 instance.full_clean()
                 instance.save()
-            return redirect(f"{reverse('product-metrics-settings', args=[site.slug])}?saved=events")
-    elif request.method == "POST" and request.POST.get("action") == "activation":
+            destination = reverse("product-metrics-settings", args=[site.slug])
+            return redirect(f"{destination}?saved=events#advanced-setup")
+        return _render_product_metrics(
+            request,
+            site,
+            event_formset=event_formset,
+            activation_form=activation_form,
+            goal_error="Check the highlighted Advanced setup fields.",
+            advanced_open=True,
+            status=400,
+        )
+
+    if action == "activation":
         event_formset = ProductEventDefinitionFormSet(
             queryset=definitions,
             prefix="events",
@@ -286,32 +626,206 @@ def product_metrics_settings(request, site_slug):
                 configured.site = site
                 configured.full_clean()
                 configured.save()
-            return redirect(
-                f"{reverse('product-metrics-settings', args=[site.slug])}?saved=activation"
-            )
-    else:
-        event_formset = ProductEventDefinitionFormSet(
-            queryset=definitions,
-            prefix="events",
-            site=site,
-        )
-        activation_form = ActivationDefinitionForm(
-            instance=activation or ActivationDefinition(site=site),
-            prefix="activation",
-            site=site,
+            destination = reverse("product-metrics-settings", args=[site.slug])
+            return redirect(f"{destination}?saved=activation#advanced-setup")
+        return _render_product_metrics(
+            request,
+            site,
+            event_formset=event_formset,
+            activation_form=activation_form,
+            goal_error="Check the highlighted Advanced setup fields.",
+            advanced_open=True,
+            status=400,
         )
 
-    return render(
+    if action == "goal_draft":
+        intent_form = GoalTrackingIntentForm(request.POST)
+        if not intent_form.is_valid():
+            return _render_product_metrics(
+                request,
+                site,
+                goal_intent_form=intent_form,
+                goal_error="Describe the outcome you want SiteHits to track.",
+                status=400,
+            )
+        return _draft_product_metrics_plan(
+            request,
+            site,
+            intent=intent_form.cleaned_data["intent"],
+        )
+
+    if action == "goal_clarify":
+        clarification_form = GoalClarificationForm(request.POST)
+        draft_id = request.POST.get("draft_id", "")
+        draft = _goal_draft_for_request(request, site, draft_id)
+        if not draft:
+            return _render_product_metrics(
+                request,
+                site,
+                goal_error="That draft expired. Describe what you want to track again.",
+                status=410,
+            )
+        try:
+            plan = ReconciledGoalPlan.model_validate(draft["plan"])
+        except (KeyError, TypeError, ValueError):
+            _delete_goal_draft(request, draft_id)
+            return _render_product_metrics(
+                request,
+                site,
+                goal_error="That draft is no longer valid. Create a new tracking plan.",
+                status=409,
+            )
+        if not clarification_form.is_valid():
+            return _render_product_metrics(
+                request,
+                site,
+                step="review",
+                goal_plan=plan,
+                goal_draft_id=draft_id,
+                goal_intent=draft["intent"],
+                goal_clarification_form=clarification_form,
+                goal_error="Answer the clarification before continuing.",
+                status=400,
+            )
+        answer = clarification_form.cleaned_data["clarification"]
+        planning_intent = (
+            f"{draft['intent']}\n\n"
+            f"Clarification question: {plan.clarification}\n"
+            f"Answer: {answer}"
+        )
+        return _draft_product_metrics_plan(
+            request,
+            site,
+            intent=draft["intent"],
+            planning_intent=planning_intent,
+            clarification_answer=answer,
+        )
+
+    if action == "goal_confirm":
+        confirm_form = GoalPlanConfirmForm(request.POST)
+        if not confirm_form.is_valid():
+            return _render_product_metrics(
+                request,
+                site,
+                goal_error="The tracking-plan draft is missing or invalid.",
+                status=400,
+            )
+        draft_id = confirm_form.cleaned_data["draft_id"]
+        draft = _goal_draft_for_request(request, site, draft_id)
+        if not draft:
+            return _render_product_metrics(
+                request,
+                site,
+                goal_error="That draft expired. Describe what you want to track again.",
+                status=410,
+            )
+        try:
+            plan = ReconciledGoalPlan.model_validate(draft["plan"])
+        except (KeyError, TypeError, ValueError):
+            _delete_goal_draft(request, draft_id)
+            return _render_product_metrics(
+                request,
+                site,
+                goal_error="That draft is no longer valid. Create a new tracking plan.",
+                status=409,
+            )
+        if not plan.can_install:
+            return _render_product_metrics(
+                request,
+                site,
+                step="review",
+                goal_plan=plan,
+                goal_draft_id=draft_id,
+                goal_intent=draft["intent"],
+                goal_error="Resolve the review items before approving this plan.",
+                status=409,
+            )
+        try:
+            _apply_goal_plan(site, plan, draft["catalog_fingerprint"])
+        except GoalCatalogChanged:
+            return _render_product_metrics(
+                request,
+                site,
+                step="review",
+                goal_plan=plan,
+                goal_draft_id=draft_id,
+                goal_intent=draft["intent"],
+                goal_error=(
+                    "The event catalog changed after this draft was created. Draft the plan "
+                    "again before approving it."
+                ),
+                status=409,
+            )
+        except (IntegrityError, ValidationError, KeyError):
+            return _render_product_metrics(
+                request,
+                site,
+                step="review",
+                goal_plan=plan,
+                goal_draft_id=draft_id,
+                goal_intent=draft["intent"],
+                goal_error="The plan could not be saved. Review it and try again.",
+                status=409,
+            )
+        _delete_goal_draft(request, draft_id)
+        destination = reverse("product-metrics-settings", args=[site.slug])
+        return redirect(f"{destination}?step=install&saved=plan")
+
+    step = request.GET.get("step", "describe")
+    draft_id = request.GET.get("draft", "")
+    if step in {"review", "describe"} and draft_id:
+        draft = _goal_draft_for_request(request, site, draft_id)
+        if not draft:
+            return _render_product_metrics(
+                request,
+                site,
+                goal_error="That draft expired. Describe what you want to track again.",
+                saved=saved,
+                status=410 if step == "review" else 200,
+            )
+        if step == "describe":
+            return _render_product_metrics(
+                request,
+                site,
+                goal_intent=draft["intent"],
+                saved=saved,
+            )
+        try:
+            plan = ReconciledGoalPlan.model_validate(draft["plan"])
+        except (KeyError, TypeError, ValueError):
+            _delete_goal_draft(request, draft_id)
+            return _render_product_metrics(
+                request,
+                site,
+                goal_error="That draft is no longer valid. Create a new tracking plan.",
+                status=409,
+            )
+        return _render_product_metrics(
+            request,
+            site,
+            step="review",
+            goal_plan=plan,
+            goal_draft_id=draft_id,
+            goal_intent=draft["intent"],
+            saved=saved,
+        )
+
+    if step == "review":
+        return _render_product_metrics(
+            request,
+            site,
+            goal_error="That draft expired. Describe what you want to track again.",
+            saved=saved,
+            status=410,
+        )
+    if step not in {"describe", "install"}:
+        step = "describe"
+    return _render_product_metrics(
         request,
-        "dashboard/product_metrics_settings.html",
-        {
-            "site": site,
-            "event_formset": event_formset,
-            "activation_form": activation_form,
-            "server_event_settings": server_event_settings(site),
-            "agent_instruction": product_tracking_agent_instruction(site),
-            "saved": saved,
-        },
+        site,
+        step=step,
+        saved=saved,
+        advanced_open=saved in {"events", "activation"},
     )
 
 

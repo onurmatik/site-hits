@@ -1,23 +1,33 @@
-# Extractable Components
+# Extractable components
 
-Updated from the current source on 2026-07-15.
+Updated from the product-metrics render path on 2026-07-20.
 
-## Recommendation for the current dashboard task
+## Extraction decision
 
-Skip Superdesign component extraction and pass the complete implementation files directly.
+No existing layout component should be extracted into a Superdesign `<sd-component>` for this task.
 
-SiteHits has no independent React/Vue layout components. The authenticated header, menu, dashboard body, footer, and dialogs are one 321-line Django template (`templates/dashboard/dashboard.html`). The header's site list is a server-rendered `{% for site in sites %}` loop with per-item URL/current-state conditions; converting it to a Petite-Vue component would require hardcoding representative site entries because the component template format forbids `v-for`. That would be less faithful than using the source template itself.
+SiteHits is server-rendered Django. `templates/dashboard/product_metrics_settings.html` is one page template with inline sections, and `templates/base.html` is a document skeleton rather than a visual navigation component. The target route does not render the dashboard header, sidebar, footer, or a reusable application-shell partial. Under the Superdesign extraction rules, basic panels, buttons, inputs, event rows, and code boxes are too small to justify component extraction.
 
-The other apparent pieces (KPI card, ranked row, buttons, inputs) are basic primitives and should remain inline according to the Superdesign extraction rules. Ranked rows and bot rows are also created dynamically by `dashboard/static/dashboard/dashboard.js`, not by reusable source components.
+Therefore Step 2.5 component extraction should be skipped. Pixel fidelity must come from passing the complete target template and CSS sources to each design command.
 
-## Possible future extraction boundary
+## Existing patterns that are context, not extractable components
 
-If SiteHits later extracts a real shared dashboard shell from the Django template, the first useful component would be:
+| Pattern | Source | Why not extract |
+| --- | --- | --- |
+| Product-metrics page shell | `templates/dashboard/product_metrics_settings.html:6-74` | Page-specific structure with Django formsets and state. |
+| Event fieldset | `templates/dashboard/product_metrics_settings.html:27-38` | Repeated server-rendered form markup; a basic form composition, not a reusable layout component. |
+| Copy panel | `templates/onboarding/install.html:12-31`, `43-58` | Repeated inline markup without a shared source abstraction; use as visual context. |
+| CSS-built brand lockup | `templates/onboarding/install.html:8` | Small static primitive; inline it in a draft if needed. |
+| Dashboard header | `templates/dashboard/dashboard.html:13-80` | Reusable in concept, but not rendered on this route and would make the reproduction inaccurate. |
 
-- **DashboardHeader**
-  - Current source: `templates/dashboard/dashboard.html:13:80`
-  - Visual dependencies: inline SVGs and Tailwind utilities from `assets/tailwind.css`
-  - Suitable future props: `activeSiteName` (active state), `allSitesHref` (navigation URL), `logoutHref` (navigation URL), `showOperational` (conditional visibility)
-  - Constraint: site menu entries should be explicit slots or hardcoded preview entries, not a `v-for` prop collection.
+## Future production refactor boundaries
 
-This is a future refactor boundary, not an extracted component that exists today.
+These are possible future components, not existing extractable components and must not be registered in Superdesign as source-backed components:
+
+- `ProductMetricsFlowProgress`
+- `TrackingIntentComposer`
+- `TrackingPlanReview`
+- `CopyInstructionPanel`
+- `AdvancedProductMetricSetup`
+
+Design drafts may depict these structures inline. Component extraction should wait until production code establishes real shared boundaries.

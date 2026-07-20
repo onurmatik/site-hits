@@ -41,7 +41,7 @@ def product_tracking_agent_instruction(site):
 Server configuration:
 SITEHITS_EVENT_ENDPOINT={endpoint}
 SITEHITS_SITE_KEY={site.public_key}
-SITEHITS_SERVER_EVENT_KEY={site.server_event_key}
+SITEHITS_SERVER_EVENT_KEY=<set this in the tracked application's server environment>
 
 Event catalog:
 {catalog}
