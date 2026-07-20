@@ -1,4 +1,4 @@
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -170,11 +170,18 @@ def test_google_signup_redirect_is_branded_when_unconfigured(client):
 
 @pytest.mark.django_db
 def test_google_signup_starts_oauth_and_preserves_next(client, settings):
-    settings.SITEHITS_GOOGLE_CLIENT_ID = "client-id"
+    settings.ALLOWED_HOSTS = [*settings.ALLOWED_HOSTS, "sitehits.io"]
+    settings.SITEHITS_GOOGLE_CLIENT_ID = "123-example.apps.googleusercontent.com"
     settings.SITEHITS_GOOGLE_CLIENT_SECRET = "client-secret"
     settings.SOCIALACCOUNT_PROVIDERS = {
         "google": {
-            "APPS": [{"client_id": "client-id", "secret": "client-secret", "key": ""}],
+            "APPS": [
+                {
+                    "client_id": "123-example.apps.googleusercontent.com",
+                    "secret": "client-secret",
+                    "key": "",
+                }
+            ],
             "SCOPE": ["profile", "email"],
             "AUTH_PARAMS": {"access_type": "online"},
             "OAUTH_PKCE_ENABLED": True,
@@ -186,9 +193,15 @@ def test_google_signup_starts_oauth_and_preserves_next(client, settings):
     assert response.status_code == 302
     assert response.url.startswith(reverse("google_login"))
     assert "next=%2Fonboarding%2F" in response.url
-    oauth = client.get(response.url)
+    oauth = client.get(response.url, secure=True, HTTP_HOST="sitehits.io")
     assert oauth.status_code == 302
     assert oauth.url.startswith("https://accounts.google.com/")
+    oauth_query = parse_qs(urlsplit(oauth.url).query)
+    assert oauth_query["redirect_uri"] == [
+        "https://sitehits.io/accounts/google/login/callback/"
+    ]
+    assert set(oauth_query["scope"][0].split()) == {"profile", "email"}
+    assert oauth_query["code_challenge_method"] == ["S256"]
 
 
 @pytest.mark.django_db

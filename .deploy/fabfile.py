@@ -39,6 +39,18 @@ VENV_DIR = f"{PROJECT_DIR}/venv"
 REPO_URL = f"https://github.com/{GITHUB_REPO}.git"
 GEOIP_DB_PATH = "/var/lib/GeoIP/GeoLite2-City.mmdb"
 GEOIP_CONFIG_PATH = "/etc/GeoIP.conf"
+RUNTIME_ENV_KEYS = (
+    "GOOGLE_OAUTH_CLIENT_ID",
+    "GOOGLE_OAUTH_CLIENT_SECRET",
+    "DJANGO_EMAIL_BACKEND",
+    "AWS_SES_ACCESS_KEY_ID",
+    "AWS_SES_SECRET_ACCESS_KEY",
+    "AWS_SES_REGION_NAME",
+    "AWS_SES_REGION_ENDPOINT",
+    "USE_SES_V2",
+    "AWS_SES_CONFIGURATION_SET",
+    "DEFAULT_FROM_EMAIL",
+)
 
 
 def quote(value: str) -> str:
@@ -84,6 +96,35 @@ fi
 chmod 600 .env
 """.strip()
     app_run(connection, f"bash -lc {quote(script)}")
+
+
+def sync_runtime_env(connection: Connection) -> None:
+    updates = {
+        key: os.environ.get(key, "").strip()
+        for key in RUNTIME_ENV_KEYS
+        if os.environ.get(key, "").strip()
+    }
+    if not updates:
+        return
+    if any("\n" in value or "\r" in value for value in updates.values()):
+        raise RuntimeError("Runtime environment values must be single-line strings.")
+
+    payload = "".join(f"{key}={value}\n" for key, value in updates.items())
+    temporary_path = connection.run("mktemp", hide=True).stdout.strip()
+    staged_path = PROJECT_DIR + "/.env.deploy"
+    try:
+        connection.put(BytesIO(payload.encode()), remote=temporary_path)
+        connection.sudo(
+            f"install -o {quote(APP_USER)} -g {quote(APP_USER)} -m 600 "
+            f"{quote(temporary_path)} {quote(staged_path)}"
+        )
+        app_run(
+            connection,
+            f"python3 .deploy/sync_env.py .env {quote(Path(staged_path).name)}",
+        )
+    finally:
+        connection.run(f"rm -f {quote(temporary_path)}", warn=True, hide=True)
+        app_run(connection, f"rm -f {quote(Path(staged_path).name)}", warn=True)
 
 
 def ensure_geoip_database(connection: Connection) -> None:
@@ -172,6 +213,7 @@ def deploy(_context):
 
     ensure_geoip_database(connection)
     ensure_runtime_env(connection)
+    sync_runtime_env(connection)
 
     if connection.run(f"test -x {quote(VENV_DIR + '/bin/python')}", warn=True, hide=True).failed:
         app_run(connection, f"python3 -m venv {quote(VENV_DIR)}")

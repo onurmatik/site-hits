@@ -10,18 +10,26 @@ The first deployment creates `/srv/apps/sitehits/.env` with private runtime
 secrets. Later deployments preserve that file, rebuild frontend assets, apply
 database migrations, collect static files, and refresh the cold-tier socket.
 
-The ignored local `.env-prod` holds the SES values. Before deploying, merge
-those entries into the preserved `/srv/apps/sitehits/.env`; the Fabric task
-does not replace an existing runtime env file. The runtime env must include:
+The ignored local `.env-prod` holds production-only secrets. The Fabric task
+merges its supported non-empty values into the preserved
+`/srv/apps/sitehits/.env` with mode `0600` on every deploy. It never replaces
+unrelated runtime settings. The runtime env must include:
 
 ```text
 AWS_SES_ACCESS_KEY_ID=...
 AWS_SES_SECRET_ACCESS_KEY=...
 AWS_SES_REGION_NAME=...
 DEFAULT_FROM_EMAIL=SiteHits <hello@sitehits.io>
+GOOGLE_OAUTH_CLIENT_ID=...
+GOOGLE_OAUTH_CLIENT_SECRET=...
 ```
 
 The SES region must be the region where the `sitehits.io` identity is verified.
+The Google OAuth web client must authorize this exact redirect URI:
+
+```text
+https://sitehits.io/accounts/google/login/callback/
+```
 
 Country, region, and city analytics use the MaxMind GeoLite2 City database.
 Create a MaxMind license key and add these deployment-only values to the

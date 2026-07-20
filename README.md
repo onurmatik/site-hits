@@ -143,6 +143,11 @@ Google sign-up/sign-in uses `django-allauth`. Set `GOOGLE_OAUTH_CLIENT_ID` and `
 https://sitehits.io/accounts/google/login/callback/
 ```
 
+The checked-in Fabric deploy task reads these values from the ignored
+`.env-prod` file, securely merges them into the server's preserved runtime
+environment, and fails its production checks when either value is missing or
+the client ID is not a Google web client ID.
+
 Both methods preserve the submitted website and resume at `/onboarding/`. New tracked sites are owned by the authenticated user; regular users can only open and query their own sites.
 
 The included Dockerfile builds Tailwind/Chart.js assets, collects static files, applies migrations, and starts Gunicorn. Health checks should target `/health/`.

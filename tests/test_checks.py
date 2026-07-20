@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 from analytics.checks import check_geoip_database
+from dashboard.checks import check_google_oauth
 
 
 @override_settings(SITEHITS_GEOIP_DB_PATH="")
@@ -59,3 +60,28 @@ def test_deploy_check_rejects_wrong_mmdb_type(tmp_path):
         issues = check_geoip_database(None)
 
     assert [issue.id for issue in issues] == ["analytics.E004"]
+
+
+@override_settings(SITEHITS_GOOGLE_CLIENT_ID="", SITEHITS_GOOGLE_CLIENT_SECRET="")
+def test_deploy_check_requires_google_oauth_credentials():
+    issues = check_google_oauth(None)
+
+    assert [issue.id for issue in issues] == ["dashboard.E001"]
+
+
+@override_settings(
+    SITEHITS_GOOGLE_CLIENT_ID="not-a-google-client",
+    SITEHITS_GOOGLE_CLIENT_SECRET="client-secret",
+)
+def test_deploy_check_rejects_invalid_google_client_id():
+    issues = check_google_oauth(None)
+
+    assert [issue.id for issue in issues] == ["dashboard.E002"]
+
+
+@override_settings(
+    SITEHITS_GOOGLE_CLIENT_ID="123-example.apps.googleusercontent.com",
+    SITEHITS_GOOGLE_CLIENT_SECRET="client-secret",
+)
+def test_deploy_check_accepts_google_oauth_credentials():
+    assert check_google_oauth(None) == []
