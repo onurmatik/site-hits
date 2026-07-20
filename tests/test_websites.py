@@ -13,4 +13,6 @@ def test_generated_tracking_keys_use_sitehits_prefixes():
 
     assert site.public_key.startswith("sh_")
     assert site.bot_key.startswith("shb_")
+    assert site.server_event_key.startswith("shs_")
     assert site.bot_key != site.public_key
+    assert site.server_event_key not in {site.public_key, site.bot_key}

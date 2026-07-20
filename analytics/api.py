@@ -11,6 +11,13 @@ from .bot_ingestion import (
     ingest_bot_event,
 )
 from .ingestion import IngestionError, ingest_event
+from .product_ingestion import (
+    ProductAuthenticationError,
+    ProductIngestionError,
+    forget_actor,
+    ingest_server_event,
+)
+from .product_reporting import product_metrics
 from .reporting import bot_traffic, breakdown, overview, site_overviews, timeseries
 from .schemas import (
     AcceptedResponse,
@@ -18,6 +25,10 @@ from .schemas import (
     BotEventPayload,
     ErrorResponse,
     EventPayload,
+    ForgetActorPayload,
+    ForgetActorResponse,
+    ServerAcceptedResponse,
+    ServerEventPayload,
 )
 
 
@@ -42,6 +53,36 @@ def collect_event(request, payload: EventPayload):
         return Status(400, {"error": {"message": str(exc)}})
     response = JsonResponse({"accepted": True}, status=202)
     return response
+
+
+@api.post(
+    "/server-events",
+    auth=None,
+    response={202: ServerAcceptedResponse, 400: ErrorResponse, 401: ErrorResponse},
+    summary="Collect an authenticated product event",
+)
+def collect_server_event(request, payload: ServerEventPayload):
+    try:
+        _, duplicate = ingest_server_event(request, payload)
+    except ProductAuthenticationError as exc:
+        return Status(401, {"error": {"message": str(exc)}})
+    except (ProductIngestionError, ValueError) as exc:
+        return Status(400, {"error": {"message": str(exc)}})
+    return Status(202, {"accepted": True, "duplicate": duplicate})
+
+
+@api.post(
+    "/server-events/forget-actor",
+    auth=None,
+    response={200: ForgetActorResponse, 401: ErrorResponse},
+    summary="Delete product events for one actor",
+)
+def forget_server_actor(request, payload: ForgetActorPayload):
+    try:
+        deleted = forget_actor(request, payload.actor_id)
+    except ProductAuthenticationError as exc:
+        return Status(401, {"error": {"message": str(exc)}})
+    return {"deleted_events": deleted}
 
 
 @api.post(
@@ -127,5 +168,17 @@ def analytics_breakdown(
 def analytics_bots(request, site: str = "all", period: str = "last7d", limit: int = 8):
     try:
         return bot_traffic(site, period, limit, visible_sites(request))
+    except ValueError as exc:
+        raise HttpError(400, str(exc)) from exc
+
+
+@api.get(
+    "/analytics/product-metrics",
+    auth=django_auth,
+    summary="Get configured activation and product metrics",
+)
+def analytics_product_metrics(request, site: str, period: str = "last7d"):
+    try:
+        return product_metrics(site, period, visible_sites(request))
     except ValueError as exc:
         raise HttpError(400, str(exc)) from exc

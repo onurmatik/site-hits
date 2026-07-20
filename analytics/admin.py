@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import AnalyticsEvent, BotEvent
+from .models import ActivationDefinition, AnalyticsEvent, BotEvent, ProductEventDefinition
 
 
 @admin.register(AnalyticsEvent)
@@ -10,12 +10,13 @@ class AnalyticsEventAdmin(admin.ModelAdmin):
         "site",
         "event_type",
         "event_name",
+        "source",
         "path",
         "country_code",
         "city_name",
         "device",
     )
-    list_filter = ("site", "event_type", "country_code", "device")
+    list_filter = ("site", "event_type", "source", "country_code", "device")
     search_fields = (
         "path",
         "event_name",
@@ -32,6 +33,19 @@ class AnalyticsEventAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+
+
+@admin.register(ProductEventDefinition)
+class ProductEventDefinitionAdmin(admin.ModelAdmin):
+    list_display = ("display_name", "site", "event_name", "aggregation", "unit")
+    list_filter = ("site", "aggregation")
+    search_fields = ("display_name", "event_name", "description")
+
+
+@admin.register(ActivationDefinition)
+class ActivationDefinitionAdmin(admin.ModelAdmin):
+    list_display = ("site", "start_event", "goal_event", "updated_at")
+    list_filter = ("site",)
 
 
 @admin.register(BotEvent)

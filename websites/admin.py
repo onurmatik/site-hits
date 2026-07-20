@@ -9,13 +9,15 @@ from .models import TrackedSite
 class TrackedSiteAdmin(admin.ModelAdmin):
     list_display = ("name", "owner", "slug", "domain_list", "timezone", "is_active", "updated_at")
     list_filter = ("is_active", "timezone")
-    search_fields = ("name", "slug", "public_key", "bot_key")
+    search_fields = ("name", "slug", "public_key", "bot_key", "server_event_key")
     prepopulated_fields = {"slug": ("name",)}
     readonly_fields = (
         "public_key",
         "tracking_snippet",
         "bot_key",
         "bot_tracking_settings",
+        "server_event_key",
+        "server_event_settings",
         "created_at",
         "updated_at",
     )
@@ -31,6 +33,8 @@ class TrackedSiteAdmin(admin.ModelAdmin):
                     "tracking_snippet",
                     "bot_key",
                     "bot_tracking_settings",
+                    "server_event_key",
+                    "server_event_settings",
                 )
             },
         ),
@@ -60,5 +64,16 @@ class TrackedSiteAdmin(admin.ModelAdmin):
         settings_text = (
             f"SITEHITS_BOT_ENDPOINT={settings.SITEHITS_BASE_URL}/api/bot-events\n"
             f"SITEHITS_BOT_KEY={obj.bot_key}"
+        )
+        return format_html("<code style='white-space:pre-wrap'>{}</code>", settings_text)
+
+    @admin.display(description="Server-side product event settings")
+    def server_event_settings(self, obj):
+        if not obj.pk:
+            return "Save the site to generate its server event key."
+        settings_text = (
+            f"SITEHITS_EVENT_ENDPOINT={settings.SITEHITS_BASE_URL}/api/server-events\n"
+            f"SITEHITS_SITE_KEY={obj.public_key}\n"
+            f"SITEHITS_SERVER_EVENT_KEY={obj.server_event_key}"
         )
         return format_html("<code style='white-space:pre-wrap'>{}</code>", settings_text)

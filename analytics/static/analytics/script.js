@@ -6,6 +6,7 @@
 
   var siteKey = script.getAttribute("data-site-key") || "";
   var apiUrl = script.getAttribute("data-api-url") || new URL("/api/events", script.src).href;
+  var actorToken = script.getAttribute("data-actor-token") || "";
   var sessionKey = "sitehits_session_" + siteKey;
   var pageviewKey = "sitehits_pageview_" + siteKey;
   var sessionTimeout = 30 * 60 * 1000;
@@ -55,7 +56,7 @@
     };
   }
 
-  function payload(eventType, eventName, properties) {
+  function payload(eventType, eventName, properties, metric) {
     return {
       site_key: siteKey,
       event_type: eventType,
@@ -70,11 +71,14 @@
       screen: dimensions(window.screen),
       automation: { webdriver: navigator.webdriver === true },
       properties: properties || {},
+      actor_token: actorToken,
+      value: metric && metric.value != null ? metric.value : null,
+      unit: metric && metric.unit ? metric.unit : "",
     };
   }
 
-  function send(eventType, eventName, properties) {
-    var body = payload(eventType, eventName, properties);
+  function send(eventType, eventName, properties, metric) {
+    var body = payload(eventType, eventName, properties, metric);
     return fetch(apiUrl, {
       method: "POST",
       mode: "cors",
@@ -102,7 +106,7 @@
     } catch (_error) {
       // Continue tracking if sessionStorage is unavailable.
     }
-    return send("pageview", "", {});
+    return send("pageview", "", {}, null);
   }
 
   function cleanProperties(properties) {
@@ -118,24 +122,46 @@
     return result;
   }
 
-  function track(command, name, properties) {
+  function cleanMetric(options) {
+    if (!options || typeof options !== "object" || options.value == null) {
+      return { value: null, unit: "" };
+    }
+    var value = String(options.value);
+    var unit = typeof options.unit === "string" ? options.unit.trim() : "";
+    if (!value || !Number.isFinite(Number(value))) return { value: null, unit: "" };
+    if (!/^[a-z][a-z0-9_-]{0,31}$/i.test(unit)) return { value: null, unit: "" };
+    return { value: value, unit: unit };
+  }
+
+  function track(command, name, properties, options) {
+    if (command === "identify") {
+      actorToken = typeof name === "string" ? name : "";
+      return;
+    }
     if (command !== "event") return;
     if (typeof name !== "string" || !/^[a-z0-9][a-z0-9_:-]{0,63}$/.test(name)) return;
-    return send("custom", name, cleanProperties(properties));
+    return send("custom", name, cleanProperties(properties), cleanMetric(options));
   }
 
   function declarativeEvent(element) {
     var name = element.getAttribute("data-sitehits-event");
     if (!name) return;
     var properties = {};
+    var options = {
+      value: element.getAttribute("data-sitehits-value"),
+      unit: element.getAttribute("data-sitehits-unit") || "",
+    };
     Array.prototype.forEach.call(element.attributes, function (attribute) {
-      if (attribute.name.indexOf("data-sitehits-") !== 0 || attribute.name === "data-sitehits-event") {
+      if (
+        attribute.name.indexOf("data-sitehits-") !== 0
+        || ["data-sitehits-event", "data-sitehits-value", "data-sitehits-unit"].indexOf(attribute.name) !== -1
+      ) {
         return;
       }
       var key = attribute.name.slice("data-sitehits-".length).replace(/-/g, "_");
       properties[key] = attribute.value;
     });
-    track("event", name, properties);
+    track("event", name, properties, options);
   }
 
   function closestEventTarget(target) {

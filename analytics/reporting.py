@@ -26,13 +26,17 @@ VALID_GRANULARITIES = {"auto", "hourly", "daily"}
 BREAKDOWN_CONFIG = {
     "pages": ("path", Q(event_type="pageview"), False),
     "referrers": ("referrer_domain", Q(event_type="pageview"), False),
-    "countries": ("country_name", Q(), True),
-    "regions": ("region_name", Q(), True),
-    "cities": ("city_name", Q(), True),
-    "devices": ("device", Q(), True),
-    "browsers": ("browser", Q(), True),
-    "os": ("operating_system", Q(), True),
-    "campaigns": ("utm_campaign", ~Q(utm_campaign=""), True),
+    "countries": ("country_name", Q(source="browser"), True),
+    "regions": ("region_name", Q(source="browser"), True),
+    "cities": ("city_name", Q(source="browser"), True),
+    "devices": ("device", Q(source="browser"), True),
+    "browsers": ("browser", Q(source="browser"), True),
+    "os": ("operating_system", Q(source="browser"), True),
+    "campaigns": (
+        "utm_campaign",
+        Q(source="browser") & ~Q(utm_campaign=""),
+        True,
+    ),
     "events": ("event_name", Q(event_type="custom") & ~Q(event_name=""), False),
 }
 BOT_CATEGORY_LABELS = {
@@ -116,7 +120,13 @@ def bot_event_queryset(site, start, end, sites=None):
 
 
 def metric_values(queryset):
-    visitors = queryset.values("site_id", "visitor_hash").distinct().count()
+    queryset = queryset.filter(source=AnalyticsEvent.Source.BROWSER)
+    visitors = (
+        queryset.exclude(visitor_hash="")
+        .values("site_id", "visitor_hash")
+        .distinct()
+        .count()
+    )
     pageviews = queryset.filter(event_type="pageview").count()
     session_rows = list(
         queryset.values("site_id", "session_id").annotate(
@@ -144,6 +154,7 @@ def metric_values(queryset):
 
 
 def metric_values_by_site(queryset, site_ids):
+    queryset = queryset.filter(source=AnalyticsEvent.Source.BROWSER)
     values = {
         site_id: {
             "visitors": 0,
@@ -264,6 +275,7 @@ def timeseries(site_slug, period, granularity, sites=None):
     )
     rows = (
         event_queryset(site, ranges.start, ranges.end, sites)
+        .filter(source=AnalyticsEvent.Source.BROWSER)
         .annotate(bucket=trunc)
         .values("bucket")
         .annotate(
@@ -581,7 +593,9 @@ def last_hour_widget(site, now=None):
         occurred_at__gte=start,
         occurred_at__lt=end,
         automation_score__lt=EXPLICIT_AUTOMATION_SCORE_THRESHOLD,
+        source=AnalyticsEvent.Source.BROWSER,
     )
+    queryset = queryset.exclude(visitor_hash="")
 
     minute_rows = (
         queryset.annotate(bucket=TruncMinute("occurred_at", tzinfo=tzinfo))

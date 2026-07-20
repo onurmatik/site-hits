@@ -92,6 +92,10 @@
       </div>
       <div class="flex max-w-full flex-wrap items-center gap-3">
         {% if selected_site %}
+          <a href="{{ product_metrics_settings_url }}"
+             class="grid min-h-10 place-items-center rounded-[2px] border border-ink/15 bg-white px-4 text-sm font-medium transition-colors hover:border-forest hover:text-forest">
+            Product metrics
+          </a>
           <button id="embed-widget-trigger" type="button"
                   class="min-h-10 rounded-[2px] border border-ink/15 bg-white px-4 text-sm font-medium transition-colors hover:border-forest hover:text-forest">
             Embed widget
@@ -205,6 +209,53 @@
       </div>
       <div class="relative h-[300px]"><canvas id="traffic-chart"></canvas></div>
     </section>
+
+    {% if selected_site %}
+    <section id="product-metrics" class="space-y-4 md:space-y-6" aria-labelledby="product-metrics-title">
+      <header class="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+        <div>
+          <p class="sh-mono mb-1 text-muted">Identified product behavior</p>
+          <h2 id="product-metrics-title" class="text-xl font-semibold tracking-tight">Activation &amp; product metrics</h2>
+        </div>
+        <div class="flex flex-wrap items-center gap-4">
+          <span data-product-collector class="sh-mono text-[10px] text-muted">Collector status loading</span>
+          <a href="{{ product_metrics_settings_url }}" class="grid min-h-10 place-items-center rounded-[2px] border border-ink/15 bg-white px-4 text-sm font-medium transition-colors hover:border-forest hover:text-forest">Configure metrics</a>
+        </div>
+      </header>
+
+      <div data-product-empty hidden class="sh-panel p-6 md:p-8">
+        <p class="font-medium">No product metrics are configured yet.</p>
+        <p class="mt-2 max-w-2xl text-sm leading-6 text-muted">Define an event catalog and copy the generated instruction into the agent working on this site.</p>
+        <a href="{{ product_metrics_settings_url }}" class="mt-5 inline-grid min-h-10 place-items-center rounded-[2px] bg-forest px-4 text-sm font-medium text-white hover:bg-ink">Set up product metrics</a>
+      </div>
+
+      <div data-product-content class="space-y-4 md:space-y-6">
+        <div data-product-warning hidden class="border border-coral bg-coral/10 p-4 text-sm text-danger" role="status"></div>
+        <div data-activation-section hidden>
+          <div class="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
+            <div><p class="sh-mono mb-1 text-muted">Cohort conversion</p><h3 data-activation-title class="text-lg font-semibold">Activation</h3></div>
+            <span data-activation-pending class="sh-mono text-[10px] text-muted">—</span>
+          </div>
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6" aria-label="Activation metrics">
+            <article class="sh-panel relative overflow-hidden p-5" data-activation-metric="started"><span class="absolute inset-x-0 top-0 h-0.5 bg-forest"></span><p class="sh-mono mb-3 text-muted">Started</p><strong data-value class="sh-tabular text-3xl font-semibold">—</strong></article>
+            <article class="sh-panel p-5" data-activation-metric="activated"><p class="sh-mono mb-3 text-muted">Activated</p><strong data-value class="sh-tabular text-3xl font-semibold">—</strong></article>
+            <article class="sh-panel p-5" data-activation-metric="rate_24h"><p class="sh-mono mb-3 text-muted">Within 24h</p><strong data-value class="sh-tabular text-3xl font-semibold">—</strong></article>
+            <article class="sh-panel p-5" data-activation-metric="rate_7d"><p class="sh-mono mb-3 text-muted">Within 7d</p><strong data-value class="sh-tabular text-3xl font-semibold">—</strong></article>
+            <article class="sh-panel p-5" data-activation-metric="pending_7d"><p class="sh-mono mb-3 text-muted">Pending 7d</p><strong data-value class="sh-tabular text-3xl font-semibold">—</strong></article>
+            <article class="sh-panel p-5" data-activation-metric="median_activation_seconds"><p class="sh-mono mb-3 text-muted">Median time</p><strong data-value class="sh-tabular text-3xl font-semibold">—</strong></article>
+          </div>
+        </div>
+
+        <article class="sh-panel overflow-hidden" data-product-metric-list>
+          <header class="flex items-center justify-between border-b border-ink/15 px-5 py-4">
+            <h3 class="sh-mono font-semibold text-ink">Configured metrics</h3>
+            <span class="sh-mono text-[10px] text-muted">Primary · events · actors · identified</span>
+          </header>
+          <div data-product-rows class="min-h-28 p-2"><div class="space-y-2 p-3"><div class="sh-skeleton h-10"></div><div class="sh-skeleton h-10 w-4/5"></div></div></div>
+        </article>
+      </div>
+    </section>
+    {% endif %}
 
     <section id="bot-traffic" class="space-y-4 md:space-y-6" aria-labelledby="bot-traffic-title">
       <header class="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">

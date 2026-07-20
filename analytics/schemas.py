@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal, TypeAlias
 
 from ninja import Field, Schema
@@ -31,6 +32,9 @@ class EventPayload(Schema):
     screen: ViewportSchema
     automation: AutomationSignalsSchema = Field(default_factory=AutomationSignalsSchema)
     properties: dict[str, JsonScalar] = Field(default_factory=dict)
+    actor_token: str = Field(default="", max_length=2048)
+    value: Decimal | None = None
+    unit: str = Field(default="", max_length=32)
 
     @field_validator("event_type")
     @classmethod
@@ -47,12 +51,35 @@ class BotEventPayload(Schema):
     timestamp: datetime | None = None
 
 
+class ServerEventPayload(Schema):
+    event_id: str = Field(min_length=1, max_length=255)
+    event_name: str = Field(min_length=1, max_length=64)
+    actor_id: str = Field(default="", max_length=255)
+    timestamp: datetime | None = None
+    value: Decimal | None = None
+    unit: str = Field(default="", max_length=32)
+    path: str = Field(default="", max_length=2048)
+    properties: dict[str, JsonScalar] = Field(default_factory=dict)
+
+
+class ForgetActorPayload(Schema):
+    actor_id: str = Field(min_length=1, max_length=255)
+
+
 class AcceptedResponse(Schema):
     accepted: bool
 
 
 class BotAcceptedResponse(AcceptedResponse):
     classification: Literal["known_crawler", "unrecognized"]
+
+
+class ServerAcceptedResponse(AcceptedResponse):
+    duplicate: bool
+
+
+class ForgetActorResponse(Schema):
+    deleted_events: int
 
 
 class ErrorDetail(Schema):

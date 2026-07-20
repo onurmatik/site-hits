@@ -411,6 +411,109 @@
     renderAutomationRows("pages", automation.pages);
   }
 
+  function renderProductCollector(collector) {
+    var target = document.querySelector("[data-product-collector]");
+    if (!target || !collector) return;
+    target.classList.remove("text-success", "text-danger");
+    if (collector.state === "active") {
+      target.classList.add("text-success");
+      target.textContent = "Collector active · last seen " + new Date(collector.last_seen_at).toLocaleString();
+    } else if (collector.state === "stale") {
+      target.classList.add("text-danger");
+      target.textContent = "Collector stale · last seen " + new Date(collector.last_seen_at).toLocaleString();
+    } else {
+      target.textContent = "Collector has not checked in";
+    }
+  }
+
+  function decimalValue(raw) {
+    var text = String(raw);
+    var match = text.match(/^(-?)(\d+)(?:\.(\d+))?$/);
+    if (!match) return text;
+    var signedInteger = (match[1] || "") + match[2];
+    var integer;
+    try {
+      integer = numberFormat.format(BigInt(signedInteger));
+    } catch (_error) {
+      integer = signedInteger;
+    }
+    return integer + (match[3] ? "." + match[3] : "");
+  }
+
+  function productValue(metric) {
+    if (metric.primary_value == null) return "—";
+    var rendered = metric.primary_value;
+    if (metric.aggregation === "sum" || metric.aggregation === "average") {
+      rendered = decimalValue(rendered);
+      return metric.unit ? rendered + " " + metric.unit : rendered;
+    }
+    return numberFormat.format(Number(rendered));
+  }
+
+  function renderProductRows(metrics) {
+    var container = document.querySelector("[data-product-rows]");
+    container.replaceChildren();
+    metrics.forEach(function (metric) {
+      var row = document.createElement("div");
+      row.className = "grid gap-3 border-b border-ink/10 px-3 py-4 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center";
+      var body = document.createElement("div");
+      body.className = "min-w-0";
+      var title = document.createElement("p");
+      title.className = "font-medium";
+      title.textContent = metric.display_name;
+      var description = document.createElement("p");
+      description.className = "mt-1 truncate text-xs text-muted";
+      description.textContent = metric.event_name + " · " + metric.description;
+      body.append(title, description);
+      var values = document.createElement("div");
+      values.className = "flex flex-wrap items-baseline gap-x-4 gap-y-1 text-right";
+      var primary = document.createElement("strong");
+      primary.className = "sh-tabular text-xl";
+      primary.textContent = productValue(metric);
+      var detail = document.createElement("span");
+      detail.className = "sh-mono text-[10px] text-muted";
+      detail.textContent = numberFormat.format(metric.event_count) + " events · "
+        + numberFormat.format(metric.unique_actors) + " actors · "
+        + (metric.identified_rate == null ? "—" : metric.identified_rate.toFixed(1) + "%") + " identified";
+      values.append(primary, detail);
+      row.append(body, values);
+      container.appendChild(row);
+    });
+  }
+
+  function renderProductMetrics(data) {
+    var empty = document.querySelector("[data-product-empty]");
+    var content = document.querySelector("[data-product-content]");
+    var configured = Boolean(data.activation || data.metrics.length);
+    empty.hidden = configured;
+    content.hidden = !configured;
+    renderProductCollector(data.collector);
+    if (!configured) return;
+
+    var warning = document.querySelector("[data-product-warning]");
+    warning.hidden = !data.warnings.length;
+    warning.textContent = data.warnings.join(" ");
+
+    var activationSection = document.querySelector("[data-activation-section]");
+    activationSection.hidden = !data.activation;
+    if (data.activation) {
+      document.querySelector("[data-activation-title]").textContent = data.activation.start_label
+        + " → " + data.activation.goal_label;
+      document.querySelector("[data-activation-pending]").textContent = data.activation.pending_24h
+        + " pending 24h · " + data.activation.pending_7d + " pending 7d";
+      ["started", "activated", "rate_24h", "rate_7d", "pending_7d", "median_activation_seconds"].forEach(function (metric) {
+        var card = document.querySelector('[data-activation-metric="' + metric + '"] [data-value]');
+        var raw = data.activation[metric];
+        if (raw == null) card.textContent = "—";
+        else if (metric.indexOf("rate_") === 0) card.textContent = Number(raw).toFixed(1) + "%";
+        else if (metric === "median_activation_seconds") card.textContent = duration(raw);
+        else card.textContent = numberFormat.format(raw);
+      });
+    }
+    document.querySelector("[data-product-metric-list]").hidden = !data.metrics.length;
+    if (data.metrics.length) renderProductRows(data.metrics);
+  }
+
   function showError(error) {
     var target = document.getElementById("dashboard-error");
     target.textContent = error.message || "Analytics could not be loaded.";
@@ -433,4 +536,10 @@
   api("bots")
     .then(renderBotTraffic)
     .catch(showError);
+
+  if (site !== "all") {
+    api("product-metrics")
+      .then(renderProductMetrics)
+      .catch(showError);
+  }
 })();

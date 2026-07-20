@@ -17,6 +17,7 @@ dependencies = [
   "django-sesame>=3.2,<4",
   "django-allauth[socialaccount]>=65,<66",
   "django-ses>=4.7,<5",
+  "PyJWT>=2.10,<3",
 ]
 
 [dependency-groups]

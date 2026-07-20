@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}Product metrics · {{ site.name }} · SiteHits{% endblock %}
+
+{% block body %}
+<main class="mx-auto min-h-screen w-full max-w-5xl space-y-8 p-4 md:p-8">
+  <header class="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+    <div>
+      <a href="{% url 'dashboard-site' site.slug %}" class="sh-mono text-muted hover:text-forest">← {{ site.name }}</a>
+      <h1 class="mt-3 text-3xl font-semibold tracking-tight">Product metrics</h1>
+      <p class="mt-2 max-w-2xl leading-6 text-muted">Define authoritative product events, one activation funnel, and the exact instruction an agent should implement.</p>
+    </div>
+    {% if saved %}<p class="sh-mono text-success" role="status">Settings saved</p>{% endif %}
+  </header>
+
+  <section class="sh-panel p-5 md:p-6" aria-labelledby="event-catalog-title">
+    <div class="mb-6">
+      <p class="sh-mono mb-1 text-muted">Step 1</p>
+      <h2 id="event-catalog-title" class="text-xl font-semibold">Event catalog</h2>
+      <p class="mt-2 text-sm leading-6 text-muted">Use stable lowercase event names. Numeric sum and average metrics require a unit.</p>
+    </div>
+    <form method="post" class="space-y-5">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="events">
+      {{ event_formset.management_form }}
+      {% if event_formset.non_form_errors %}<div class="border border-danger bg-coral/10 p-3 text-sm text-danger">{{ event_formset.non_form_errors }}</div>{% endif %}
+      {% for form in event_formset %}
+        <fieldset class="grid gap-4 border border-ink/15 bg-paper/40 p-4 md:grid-cols-2">
+          {{ form.id }}
+          <div><label class="mb-2 block text-sm font-medium" for="{{ form.event_name.id_for_label }}">Event name</label>{{ form.event_name }}{{ form.event_name.errors }}</div>
+          <div><label class="mb-2 block text-sm font-medium" for="{{ form.display_name.id_for_label }}">Display name</label>{{ form.display_name }}{{ form.display_name.errors }}</div>
+          <div class="md:col-span-2"><label class="mb-2 block text-sm font-medium" for="{{ form.description.id_for_label }}">When should it fire?</label>{{ form.description }}{{ form.description.errors }}</div>
+          <div><label class="mb-2 block text-sm font-medium" for="{{ form.aggregation.id_for_label }}">Aggregation</label>{{ form.aggregation }}{{ form.aggregation.errors }}</div>
+          <div><label class="mb-2 block text-sm font-medium" for="{{ form.unit.id_for_label }}">Unit</label>{{ form.unit }}{{ form.unit.errors }}</div>
+          {% if form.instance.pk %}<label class="flex items-center gap-2 text-sm text-danger">{{ form.DELETE }} Delete this event</label>{{ form.DELETE.errors }}{% endif %}
+          {% if form.non_field_errors %}<div class="md:col-span-2 text-sm text-danger">{{ form.non_field_errors }}</div>{% endif %}
+        </fieldset>
+      {% endfor %}
+      <button class="min-h-11 rounded-[2px] bg-forest px-5 font-medium text-white hover:bg-ink">Save event catalog</button>
+    </form>
+  </section>
+
+  <section class="sh-panel p-5 md:p-6" aria-labelledby="activation-title">
+    <div class="mb-6">
+      <p class="sh-mono mb-1 text-muted">Step 2</p>
+      <h2 id="activation-title" class="text-xl font-semibold">Activation funnel</h2>
+      <p class="mt-2 text-sm leading-6 text-muted">Each actor enters the cohort at their first start event and converts at their first later goal event.</p>
+    </div>
+    <form method="post" class="space-y-5">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="activation">
+      <label class="flex items-center gap-2 text-sm font-medium">{{ activation_form.enabled }} Enable activation reporting</label>
+      <div class="grid gap-4 md:grid-cols-2">
+        <div><label class="mb-2 block text-sm font-medium" for="{{ activation_form.start_event.id_for_label }}">Start event</label>{{ activation_form.start_event }}{{ activation_form.start_event.errors }}</div>
+        <div><label class="mb-2 block text-sm font-medium" for="{{ activation_form.goal_event.id_for_label }}">Goal event</label>{{ activation_form.goal_event }}{{ activation_form.goal_event.errors }}</div>
+      </div>
+      {{ activation_form.non_field_errors }}
+      <button class="min-h-11 rounded-[2px] bg-forest px-5 font-medium text-white hover:bg-ink">Save activation funnel</button>
+    </form>
+  </section>
+
+  <section class="sh-panel p-5 md:p-6" aria-labelledby="agent-instruction-title">
+    <p class="sh-mono mb-1 text-muted">Step 3</p>
+    <h2 id="agent-instruction-title" class="text-xl font-semibold">Install with your agent</h2>
+    <p class="mt-2 text-sm leading-6 text-muted">The private key belongs only in the tracked application’s server environment.</p>
+    <label class="mt-5 block text-sm font-medium" for="server-event-settings">Server environment</label>
+    <textarea id="server-event-settings" readonly class="mt-2 min-h-28 w-full border border-ink/15 bg-paper p-4 font-mono text-xs leading-6">{{ server_event_settings }}</textarea>
+    <button type="button" data-copy="server-event-settings" class="mt-2 min-h-10 border border-ink/15 bg-white px-4 text-sm font-medium hover:border-forest">Copy environment</button>
+    <label class="mt-6 block text-sm font-medium" for="product-agent-instruction">Instruction for your agent</label>
+    <textarea id="product-agent-instruction" readonly class="mt-2 min-h-96 w-full border border-ink/15 bg-paper p-4 font-mono text-xs leading-6">{{ agent_instruction }}</textarea>
+    <button type="button" data-copy="product-agent-instruction" class="mt-2 min-h-10 bg-forest px-4 text-sm font-medium text-white hover:bg-ink">Copy agent instruction</button>
+    <p id="copy-status" class="mt-3 text-sm text-success" role="status" aria-live="polite"></p>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.querySelectorAll("[data-copy]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const target = document.getElementById(button.dataset.copy);
+      target.focus();
+      target.select();
+      try {
+        await navigator.clipboard.writeText(target.value);
+        document.getElementById("copy-status").textContent = "Copied to the clipboard.";
+      } catch (error) {
+        document.getElementById("copy-status").textContent = "Text selected; copy it from the field.";
+      }
+    });
+  });
+</script>
+{% endblock %}

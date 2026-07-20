@@ -14,6 +14,10 @@ def generate_bot_key():
     return f"shb_{secrets.token_urlsafe(24)}"
 
 
+def generate_server_event_key():
+    return f"shs_{secrets.token_urlsafe(24)}"
+
+
 class TrackedSite(models.Model):
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -36,6 +40,12 @@ class TrackedSite(models.Model):
         default=generate_bot_key,
         editable=False,
     )
+    server_event_key = models.CharField(
+        max_length=64,
+        unique=True,
+        default=generate_server_event_key,
+        editable=False,
+    )
     allowed_domains = models.JSONField(
         default=list,
         help_text="Exact hostnames or *.example.com wildcards. Do not include schemes or paths.",
@@ -44,6 +54,8 @@ class TrackedSite(models.Model):
     is_active = models.BooleanField(default=True)
     bot_collector_last_seen_at = models.DateTimeField(null=True, blank=True)
     bot_collector_last_event_at = models.DateTimeField(null=True, blank=True)
+    server_event_collector_last_seen_at = models.DateTimeField(null=True, blank=True)
+    server_event_collector_last_event_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

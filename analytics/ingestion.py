@@ -6,6 +6,7 @@ from websites.models import TrackedSite
 
 from .automation import assess_browser_automation
 from .models import AnalyticsEvent
+from .product_ingestion import actor_hash_from_token, validate_metric_contract
 from .privacy import (
     EVENT_NAME_PATTERN,
     client_ip,
@@ -65,14 +66,28 @@ def ingest_event(request, payload):
     location = location_for_ip(ip_address)
     referrer_domain, referrer_path = sanitized_referrer(payload.referrer)
     properties = sanitized_properties(payload.properties)
+    actor_hash = actor_hash_from_token(site, payload.actor_token)
+    metric_unit = validate_metric_contract(
+        site,
+        payload.event_name,
+        payload.value,
+        payload.unit,
+        actor_hash=actor_hash,
+    ) if payload.event_type == AnalyticsEvent.EventType.CUSTOM else ""
+    if payload.event_type == AnalyticsEvent.EventType.PAGEVIEW and (payload.value is not None or payload.unit):
+        raise IngestionError("Pageviews cannot include a metric value.")
 
     return AnalyticsEvent.objects.create(
         site=site,
         event_type=payload.event_type,
         event_name=payload.event_name,
+        source=AnalyticsEvent.Source.BROWSER,
         occurred_at=occurred_at,
         visitor_hash=daily_visitor_hash(site, ip_address, user_agent, now.date()),
         session_id=payload.session_id,
+        actor_hash=actor_hash,
+        metric_value=payload.value,
+        metric_unit=metric_unit,
         path=path,
         referrer_domain=referrer_domain,
         referrer_path=referrer_path,

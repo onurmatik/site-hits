@@ -17,7 +17,11 @@ from django.views.decorators.cache import cache_page
 from django.views.decorators.clickjacking import xframe_options_exempt
 
 from analytics.reporting import last_hour_widget
+from analytics.models import ActivationDefinition, ProductEventDefinition
 from websites.models import TrackedSite
+
+from .forms import ActivationDefinitionForm, ProductEventDefinitionFormSet
+from .product_tracking import product_tracking_agent_instruction, server_event_settings
 
 
 ONBOARDING_SESSION_KEY = "sitehits_onboarding_website"
@@ -218,6 +222,95 @@ def onboarding_install(request, site_slug):
             "tracking_snippet": _tracking_snippet(site),
             "bot_tracking_settings": _bot_tracking_settings(site),
             "bot_tracking_agent_instruction": _bot_tracking_agent_instruction(site),
+            "product_metrics_settings_url": reverse(
+                "product-metrics-settings",
+                args=[site.slug],
+            ),
+        },
+    )
+
+
+def _visible_site(request, site_slug):
+    sites = TrackedSite.objects.all()
+    if not request.user.is_superuser:
+        sites = sites.filter(owner=request.user)
+    return get_object_or_404(sites, slug=site_slug)
+
+
+@login_required
+def product_metrics_settings(request, site_slug):
+    site = _visible_site(request, site_slug)
+    definitions = ProductEventDefinition.objects.filter(site=site)
+    activation = ActivationDefinition.objects.filter(site=site).first()
+    saved = request.GET.get("saved", "")
+
+    if request.method == "POST" and request.POST.get("action") == "events":
+        event_formset = ProductEventDefinitionFormSet(
+            request.POST,
+            queryset=definitions,
+            prefix="events",
+            site=site,
+        )
+        activation_form = ActivationDefinitionForm(
+            instance=activation or ActivationDefinition(site=site),
+            prefix="activation",
+            site=site,
+        )
+        if event_formset.is_valid():
+            instances = event_formset.save(commit=False)
+            for deleted in event_formset.deleted_objects:
+                deleted.delete()
+            for instance in instances:
+                instance.site = site
+                instance.full_clean()
+                instance.save()
+            return redirect(f"{reverse('product-metrics-settings', args=[site.slug])}?saved=events")
+    elif request.method == "POST" and request.POST.get("action") == "activation":
+        event_formset = ProductEventDefinitionFormSet(
+            queryset=definitions,
+            prefix="events",
+            site=site,
+        )
+        activation_form = ActivationDefinitionForm(
+            request.POST,
+            instance=activation or ActivationDefinition(site=site),
+            prefix="activation",
+            site=site,
+        )
+        if activation_form.is_valid():
+            if not activation_form.cleaned_data["enabled"]:
+                if activation:
+                    activation.delete()
+            else:
+                configured = activation_form.save(commit=False)
+                configured.site = site
+                configured.full_clean()
+                configured.save()
+            return redirect(
+                f"{reverse('product-metrics-settings', args=[site.slug])}?saved=activation"
+            )
+    else:
+        event_formset = ProductEventDefinitionFormSet(
+            queryset=definitions,
+            prefix="events",
+            site=site,
+        )
+        activation_form = ActivationDefinitionForm(
+            instance=activation or ActivationDefinition(site=site),
+            prefix="activation",
+            site=site,
+        )
+
+    return render(
+        request,
+        "dashboard/product_metrics_settings.html",
+        {
+            "site": site,
+            "event_formset": event_formset,
+            "activation_form": activation_form,
+            "server_event_settings": server_event_settings(site),
+            "agent_instruction": product_tracking_agent_instruction(site),
+            "saved": saved,
         },
     )
 
@@ -249,8 +342,13 @@ def dashboard(request, site_slug):
     widget_embed_code = ""
     widget_agent_instruction = ""
     bot_setup_url = ""
+    product_metrics_settings_url = ""
     if selected:
         bot_setup_url = reverse("onboarding-install", args=[selected.slug])
+        product_metrics_settings_url = reverse(
+            "product-metrics-settings",
+            args=[selected.slug],
+        )
         widget_url = request.build_absolute_uri(
             reverse("site-widget", args=[selected.public_key])
         )
@@ -284,6 +382,7 @@ def dashboard(request, site_slug):
             "widget_embed_code": widget_embed_code,
             "widget_agent_instruction": widget_agent_instruction,
             "bot_setup_url": bot_setup_url,
+            "product_metrics_settings_url": product_metrics_settings_url,
             "breakdowns": [
                 ("pages", "Top pages", "Views"),
                 ("referrers", "Top referrers", "Views"),

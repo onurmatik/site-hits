@@ -5,7 +5,12 @@ from django.utils.cache import patch_vary_headers
 
 class EventCorsMiddleware:
     event_path = "/api/events"
-    collection_paths = {event_path, "/api/bot-events"}
+    collection_paths = {
+        event_path,
+        "/api/bot-events",
+        "/api/server-events",
+        "/api/server-events/forget-actor",
+    }
 
     def __init__(self, get_response):
         self.get_response = get_response

@@ -60,6 +60,30 @@ Declarative event:
 
 The tracker captures initial pageviews and SPA navigation through `pushState`, `replaceState`, and `popstate`. It uses only `sessionStorage`; session IDs rotate after 30 minutes of inactivity.
 
+### Track activation and product metrics
+
+Each tracked site can define an event catalog and one activation funnel from its **Product metrics** settings. Server-side events use a separate private key and are idempotent:
+
+```http
+POST /api/server-events
+Authorization: Bearer shs_...
+Content-Type: application/json
+
+{
+  "event_id": "purchase:stable-logical-id",
+  "event_name": "purchase",
+  "actor_id": "123",
+  "timestamp": "2026-07-20T12:00:00Z",
+  "value": "1499.00",
+  "unit": "TRY",
+  "properties": {"plan": "pro"}
+}
+```
+
+SiteHits immediately HMAC-hashes both `actor_id` and `event_id`; raw identifiers are not stored. Use an internal PK or UUID rather than email or other PII. Repeating the same `event_id` returns `duplicate=true` without creating a second event. Actor-linked events can be removed through `POST /api/server-events/forget-actor` with the same bearer key.
+
+Authenticated browser traffic can be linked to the same actor with a server-generated, one-hour HS256 JWT passed as `data-actor-token`. The Product metrics page generates a site-specific implementation instruction containing the exact claims, event catalog, reliability rules, and tests for an agent working in Django or another framework. Existing snippets remain anonymous and require no change.
+
 ### Track bots from the server
 
 AI assistants and crawlers often skip JavaScript, so bot traffic uses a separate server-side collector. Every tracked site has a private `shb_...` bot key shown on its installation page. Keep that key in server environment variables and send a best-effort request from middleware after the response is known:
@@ -92,6 +116,7 @@ Authenticated users can access analytics for their own tracked sites. Superusers
 - `GET /api/analytics/overview`
 - `GET /api/analytics/timeseries`
 - `GET /api/analytics/bots`
+- `GET /api/analytics/product-metrics` (requires one selected site)
 - `GET /api/analytics/breakdowns/{pages|referrers|countries|regions|cities|devices|browsers|os|campaigns|events}`
 
 Common query parameters are `site=all|<slug>`, `period=today|last24h|last7d|last30d|last90d`, and `granularity=auto|hourly|daily` for time series.
