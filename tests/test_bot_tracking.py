@@ -117,6 +117,32 @@ def test_server_collector_ignores_humans_and_rejects_bad_auth_or_host(client, tr
 
 
 @pytest.mark.django_db
+def test_server_collector_treats_empty_user_agent_as_unrecognized(client, tracked_site):
+    response = client.post(
+        "/api/bot-events",
+        data=json.dumps(
+            {
+                "url": "https://example.com/wp-login.php",
+                "user_agent": "",
+                "status_code": 404,
+            }
+        ),
+        content_type="application/json",
+        HTTP_AUTHORIZATION=f"Bearer {tracked_site.bot_key}",
+    )
+
+    assert response.status_code == 202
+    assert response.json() == {
+        "accepted": False,
+        "classification": "unrecognized",
+    }
+    assert BotEvent.objects.count() == 0
+    tracked_site.refresh_from_db()
+    assert tracked_site.bot_collector_last_seen_at is not None
+    assert tracked_site.bot_collector_last_event_at is None
+
+
+@pytest.mark.django_db
 def test_bot_collector_uses_the_same_payload_size_limit(client, tracked_site, settings):
     settings.SITEHITS_MAX_EVENT_BYTES = 32
 

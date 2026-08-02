@@ -46,7 +46,7 @@ class EventPayload(Schema):
 
 class BotEventPayload(Schema):
     url: str = Field(max_length=4096)
-    user_agent: str = Field(min_length=1, max_length=1024)
+    user_agent: str = Field(max_length=1024)
     status_code: int | None = Field(default=None, ge=100, le=599)
     timestamp: datetime | None = None
 
