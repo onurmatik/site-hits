@@ -1,0 +1,33 @@
+{
+  "agent_contract_version": "1.0.0",
+  "compatibility_strategy": "additive_superset",
+  "conformance_vectors": [
+    "change_measurement_event_contract-contract-1.0.0",
+    "clear_activation-contract-1.0.0",
+    "create_measurement_event-contract-1.0.0",
+    "create_site-contract-1.0.0",
+    "delete_measurement_event-contract-1.0.0",
+    "delete_site-contract-1.0.0",
+    "get_account_capabilities-contract-1.0.0",
+    "get_analytics_breakdown-contract-1.0.0",
+    "get_analytics_overview-contract-1.0.0",
+    "get_analytics_timeseries-contract-1.0.0",
+    "get_bot_analytics-contract-1.0.0",
+    "get_integration_status-contract-1.0.0",
+    "get_measurement_config-contract-1.0.0",
+    "get_product_metrics-contract-1.0.0",
+    "get_site-contract-1.0.0",
+    "get_sites_overview-contract-1.0.0",
+    "get_tracking_setup-contract-1.0.0",
+    "list_sites-contract-1.0.0",
+    "render_tracking_setup-contract-1.0.0",
+    "set_activation-contract-1.0.0",
+    "update_measurement_event-contract-1.0.0",
+    "update_site-contract-1.0.0"
+  ],
+  "conformance_vectors_sha256": "a6ee10341bd756e6fa6ca7bf71bf4fcd483241c191d99321b531d3f3557f5f20",
+  "contract_schema_version": "1",
+  "contract_sha256": "0c0c05b1beed79be40b6ef69fdc7980c1554ef090a9864a3d2d0e292814374d0",
+  "git_commit": "fbaa88d0938fa8fc508c2552b8fedf4385e64619",
+  "schema_version": 1
+}
