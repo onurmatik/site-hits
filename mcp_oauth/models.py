@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from django.conf import settings
@@ -9,9 +10,11 @@ from django.db import models, transaction
 from django.db.models import F, Q
 from django.utils import timezone
 from django_embedded_mcp.redirects import (
+    LOOPBACK_HOSTS,
     redirect_uri_matches,
     validate_registered_redirect_uri,
 )
+from django_embedded_mcp.cimd import validate_cimd_client_id
 from django_embedded_mcp.refresh import (
     RefreshFamilyDecisionCode,
     RefreshFamilyPolicy,
@@ -46,7 +49,7 @@ def _validate_redirect_uri(uri: str) -> None:
 
 
 class OAuthApplication(AbstractApplication):
-    """Public DCR client used exclusively by the SiteHits MCP authorization server."""
+    """Public DCR or CIMD client used by the SiteHits authorization server."""
 
     metadata = models.JSONField(default=dict, blank=True)
     allowed_scopes = models.JSONField(default=list, blank=True)
@@ -87,8 +90,26 @@ class OAuthApplication(AbstractApplication):
                 name="mcp_oauth_app_no_secret_hash",
             ),
             models.CheckConstraint(
-                condition=Q(registration_source=AbstractApplication.RegistrationSource.DCR),
-                name="mcp_oauth_app_dcr_only",
+                condition=Q(
+                    registration_source__in=(
+                        AbstractApplication.RegistrationSource.DCR,
+                        AbstractApplication.RegistrationSource.CIMD,
+                    )
+                ),
+                name="mcp_oauth_app_source_supported",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        registration_source=AbstractApplication.RegistrationSource.DCR,
+                        cimd_expires_at__isnull=True,
+                    )
+                    | Q(
+                        registration_source=AbstractApplication.RegistrationSource.CIMD,
+                        cimd_expires_at__isnull=False,
+                    )
+                ),
+                name="mcp_oauth_app_cimd_expiry_ck",
             ),
         ]
 
@@ -107,31 +128,74 @@ class OAuthApplication(AbstractApplication):
             errors["hash_client_secret"] = "Public clients do not store a client secret."
         if self.skip_authorization:
             errors["skip_authorization"] = "Every authorization requires explicit consent."
-        if self.registration_source != self.RegistrationSource.DCR:
-            errors["registration_source"] = "Stage 1 accepts DCR clients only."
+        if self.registration_source not in {
+            self.RegistrationSource.DCR,
+            self.RegistrationSource.CIMD,
+        }:
+            errors["registration_source"] = "Only DCR and CIMD clients are supported."
+        if self.registration_source == self.RegistrationSource.CIMD:
+            try:
+                validate_cimd_client_id(self.client_id)
+            except ValueError as exc:
+                errors["client_id"] = str(exc)
+            if self.cimd_expires_at is None:
+                errors["cimd_expires_at"] = "CIMD clients require a cache expiry."
+        elif self.cimd_expires_at is not None:
+            errors["cimd_expires_at"] = "DCR clients must not carry CIMD cache state."
+        elif self.client_id.startswith("https://"):
+            errors["client_id"] = "URL-shaped client IDs are reserved for CIMD."
         if not isinstance(self.allowed_scopes, list) or not self.allowed_scopes:
             errors["allowed_scopes"] = "At least one registered scope is required."
-        for uri in self.redirect_uris.split():
+        metadata = self.metadata if isinstance(self.metadata, dict) else {}
+        application_type = metadata.get("application_type")
+        if application_type not in {"web", "native"}:
+            errors["metadata"] = "A web or native application_type is required."
+        redirect_uris = self.redirect_uris.split()
+        for uri in redirect_uris:
             try:
                 _validate_redirect_uri(uri)
             except ValueError as exc:
                 errors["redirect_uris"] = str(exc)
                 break
+        if application_type == "web" and not all(
+            urlsplit(uri).scheme == "https" for uri in redirect_uris
+        ):
+            errors["redirect_uris"] = "Web clients require HTTPS redirect URIs."
+        if application_type == "native" and not all(
+            urlsplit(uri).scheme == "http"
+            and urlsplit(uri).hostname in LOOPBACK_HOSTS | {"localhost"}
+            for uri in redirect_uris
+        ):
+            errors["redirect_uris"] = "Native clients require HTTP loopback redirect URIs."
         if errors:
             raise ValidationError(errors)
 
     def redirect_uri_allowed(self, uri):
+        if self.registration_source == self.RegistrationSource.CIMD:
+            return uri in self.redirect_uris.split()
         return any(
             registered == uri or _loopback_redirect_match(registered, uri)
             for registered in self.redirect_uris.split()
         )
 
     def is_usable(self, request):
+        source_is_usable = self.registration_source in {
+            self.RegistrationSource.DCR,
+            self.RegistrationSource.CIMD,
+        }
+        cimd_is_fresh = (
+            self.registration_source != self.RegistrationSource.CIMD
+            or (
+                self.cimd_expires_at is not None
+                and self.cimd_expires_at > timezone.now()
+            )
+        )
         return (
             self.revoked_at is None
             and self.client_type == self.CLIENT_PUBLIC
             and self.authorization_grant_type == self.GRANT_AUTHORIZATION_CODE
-            and self.registration_source == self.RegistrationSource.DCR
+            and source_is_usable
+            and cimd_is_fresh
         )
 
     def revoke(self):

@@ -2,8 +2,10 @@
 
 `django-embedded-mcp` is the reusable protocol layer for Django products that expose
 an OAuth-protected MCP server. It owns byte-exact resource handling, public-client
-redirect policy, OAuth metadata, Bearer challenges, header-only bearer enforcement,
-digest-backed token verification, and the stable MCP SDK configuration seam.
+redirect policy, fail-closed Client ID Metadata Document fetching and validation,
+the Dynamic Client Registration fallback policy, OAuth metadata, Bearer challenges,
+header-only bearer enforcement, digest-backed token verification, and the stable MCP
+SDK configuration seam.
 
 The host product intentionally retains:
 

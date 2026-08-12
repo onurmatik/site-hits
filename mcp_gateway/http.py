@@ -36,6 +36,8 @@ def authorization_server_metadata() -> dict[str, object]:
         issuer=settings.SITEHITS_MCP_ISSUER_URL,
         scopes_supported=settings.SITEHITS_MCP_OAUTH_SCOPES,
         service_documentation=settings.SITEHITS_MCP_DOCUMENTATION_URL,
+        client_id_metadata_document_supported=settings.SITEHITS_MCP_CIMD_ENABLED,
+        dynamic_client_registration_supported=True,
     )
 
 
@@ -94,6 +96,23 @@ def validate_oauth_configuration() -> None:
         raise ImproperlyConfigured("SITEHITS_MCP_RESOURCE_URL must use the exact /mcp path.")
     if metadata_parts.path != "/.well-known/oauth-protected-resource/mcp":
         raise ImproperlyConfigured("MCP_RESOURCE_METADATA_URL has an unexpected path.")
+    if not settings.SITEHITS_MCP_CIMD_ENABLED:
+        raise ImproperlyConfigured("SiteHits requires CIMD-first client registration.")
+    if settings.OAUTH2_PROVIDER.get("CIMD_ENABLED"):
+        raise ImproperlyConfigured(
+            "DOT's independent CIMD resolver must remain disabled; use django-embedded-mcp."
+        )
+    if not settings.OAUTH2_PROVIDER.get("DCR_ENABLED"):
+        raise ImproperlyConfigured("DCR must remain enabled as the compatibility fallback.")
+    if not (
+        0 < settings.SITEHITS_MCP_CIMD_FETCH_TIMEOUT_SECONDS <= 5
+        and 0 < settings.SITEHITS_MCP_CIMD_MAX_DOCUMENT_BYTES <= 16 * 1024
+        and 0 < settings.SITEHITS_MCP_CIMD_MIN_CACHE_SECONDS
+        <= settings.SITEHITS_MCP_CIMD_MAX_CACHE_SECONDS
+        <= 24 * 60 * 60
+        and 0 < settings.SITEHITS_MCP_CIMD_MAX_CONCURRENT_FETCHES <= 32
+    ):
+        raise ImproperlyConfigured("CIMD fetch and cache safety limits are invalid.")
 
 
 def _challenge(*, status: int, credential_present: bool) -> str:

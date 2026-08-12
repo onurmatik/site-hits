@@ -58,10 +58,13 @@ def validate_registered_redirect_uri(uri: str, *, allow_localhost: bool = False)
     parsed = _parsed(uri)
     hostname = parsed.hostname
     try:
-        unspecified_host = ip_address(hostname).is_unspecified
+        literal_address = ip_address(hostname)
     except ValueError:
-        unspecified_host = False
-    if unspecified_host:
+        literal_address = None
+    if literal_address is not None and (
+        literal_address.is_unspecified
+        or (parsed.scheme == "https" and not literal_address.is_global)
+    ):
         raise ValueError("Redirect URI contains an unsupported host.")
     if hostname == "localhost" and (
         not allow_localhost

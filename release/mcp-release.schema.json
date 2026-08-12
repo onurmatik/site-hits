@@ -54,8 +54,8 @@
     },
     "client_acceptance": {
       "type": "array",
-      "minItems": 4,
-      "maxItems": 4,
+      "minItems": 5,
+      "maxItems": 5,
       "items": {
         "type": "object",
         "required": [
@@ -65,6 +65,8 @@
           "tested_version",
           "transport",
           "registration_method",
+          "fallback_registration_method",
+          "fallback_status",
           "callback_profile",
           "status",
           "tested_at",
@@ -73,13 +75,15 @@
         ],
         "properties": {
           "client": {
-            "enum": ["chatgpt", "codex", "claude-code", "mcp-inspector"]
+            "enum": ["chatgpt", "codex", "claude", "claude-code", "mcp-inspector"]
           },
           "surface": {"type": "string", "minLength": 1},
           "tier": {"enum": ["primary", "cross-agent", "diagnostic"]},
           "tested_version": {"type": "string", "minLength": 1},
           "transport": {"const": "streamable-http"},
-          "registration_method": {"const": "dcr"},
+          "registration_method": {"const": "cimd"},
+          "fallback_registration_method": {"const": "dcr"},
+          "fallback_status": {"enum": ["passed", "diagnostic-passed"]},
           "callback_profile": {"type": "string", "minLength": 1},
           "status": {"enum": ["passed", "diagnostic-passed"]},
           "tested_at": {
@@ -102,7 +106,7 @@
       "properties": {
         "client": {
           "type": "string",
-          "pattern": "^ChatGPT .+; Codex .+; Claude Code .+$"
+          "pattern": "^ChatGPT .+; Codex .+; Claude/Claude Desktop .+; Claude Code .+$"
         },
         "tested_at": {
           "type": "string",

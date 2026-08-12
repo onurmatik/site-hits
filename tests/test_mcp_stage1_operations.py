@@ -56,13 +56,26 @@ def _load(path):
 
 
 def _smoke_evidence(contract, *, commit, image_digest):
+    def client(version, *, diagnostic=False):
+        status = "diagnostic-passed" if diagnostic else "passed"
+        return {
+            "tested_version": version,
+            "registration_method": "cimd",
+            "registration_status": status,
+            "fallback_registration_method": "dcr",
+            "fallback_status": status,
+        }
+
     return {
         "clients": {
-            "ChatGPT": "1.2026.210",
-            "Codex": "0.147.0-alpha.6.5",
-            "Claude Code": "2.1.212",
+            "ChatGPT": client("1.2026.210"),
+            "Codex": client("0.147.0-alpha.6.5"),
+            "Claude/Claude Desktop": client("1.2026.210"),
+            "Claude Code": client("2.1.212"),
         },
-        "diagnostic_clients": {"MCP Inspector": "0.18.0"},
+        "diagnostic_clients": {
+            "MCP Inspector": client("0.18.0", diagnostic=True)
+        },
         "flows": sorted(release.REQUIRED_SMOKE_FLOWS),
         "git_commit": commit,
         "image_digest": image_digest,
@@ -119,6 +132,7 @@ def test_release_descriptor_is_strict_deterministic_and_pins_stage0(tmp_path):
     )
     assert first["smoke"]["client"].startswith("ChatGPT ")
     assert "; Codex " in first["smoke"]["client"]
+    assert "; Claude/Claude Desktop " in first["smoke"]["client"]
     assert "; Claude Code " in first["smoke"]["client"]
     assert first["client_compatibility_sha256"] == (
         f"sha256:{hashlib.sha256(CLIENT_COMPATIBILITY_PATH.read_bytes()).hexdigest()}"
@@ -126,14 +140,20 @@ def test_release_descriptor_is_strict_deterministic_and_pins_stage0(tmp_path):
     assert [record["client"] for record in first["client_acceptance"]] == [
         "chatgpt",
         "codex",
+        "claude",
         "claude-code",
         "mcp-inspector",
     ]
-    assert first["client_acceptance"][2]["callback_profile"] == (
+    assert first["client_acceptance"][3]["callback_profile"] == (
         "localhost-loopback-dynamic-port"
     )
-    assert first["client_acceptance"][2]["status"] == "passed"
-    assert first["client_acceptance"][3]["status"] == "diagnostic-passed"
+    assert first["client_acceptance"][3]["status"] == "passed"
+    assert first["client_acceptance"][4]["status"] == "diagnostic-passed"
+    assert all(
+        record["registration_method"] == "cimd"
+        and record["fallback_registration_method"] == "dcr"
+        for record in first["client_acceptance"]
+    )
     assert first["smoke"]["evidence_sha256"] == (
         f"sha256:{hashlib.sha256(evidence_path.read_bytes()).hexdigest()}"
     )
@@ -242,7 +262,7 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path):
     evidence_path.write_text(json.dumps(evidence))
     with pytest.raises(
         ValueError,
-        match="exactly ChatGPT, Codex, and Claude Code",
+        match="exact primary and cross-agent baseline",
     ):
         release.build_descriptor(
             server_version="0.2.0",
@@ -346,19 +366,27 @@ def test_stage1_sources_adr_and_runbook_capture_resolved_operations():
     assert sources["runtime_artifact_store"] == "ghcr_oci_digest"
     assert sources["immutable_ref_pattern"] == "sitehits-mcp-v{server_version}"
     assert sources["descriptor_path"] == "release/mcp-release.json"
-    assert "ChatGPT-plus-Codex-plus-Claude-Code" in sources["consumer_resolution"]
+    assert "ChatGPT-plus-Codex-plus-Claude-plus-Claude-Code" in sources[
+        "consumer_resolution"
+    ]
 
     matrix = _load(CLIENT_COMPATIBILITY_PATH)
-    assert matrix["registration_policy"] == "dcr-only"
+    assert matrix["registration_policy"]["preferred"] == "cimd"
+    assert matrix["registration_policy"]["fallback"] == "dcr"
+    assert matrix["registration_policy"]["owner_role"] == "repository-maintainer"
+    assert matrix["registration_policy"]["review_interval_days"] == 90
     assert [record["client"] for record in matrix["clients"]] == [
         "chatgpt",
         "codex",
+        "claude",
         "claude-code",
         "mcp-inspector",
     ]
-    claude_code = matrix["clients"][2]
+    claude_code = matrix["clients"][3]
     assert claude_code["callback_profile"] == "localhost-loopback-dynamic-port"
     assert claude_code["release_acceptance"] == "required"
+    assert claude_code["registration_method"] == "cimd"
+    assert claude_code["fallback_registration_method"] == "dcr"
 
     adr = _load(ADR_PATH)
     assert adr["status"] == "accepted"
@@ -368,6 +396,7 @@ def test_stage1_sources_adr_and_runbook_capture_resolved_operations():
         "https://sitehits.io/mcp",
         "ChatGPT",
         "Codex",
+        "Claude/Claude Desktop",
         "Claude Code",
         "MCP Inspector",
         "127.0.0.1",
@@ -377,9 +406,9 @@ def test_stage1_sources_adr_and_runbook_capture_resolved_operations():
         "systemd",
         "GHCR",
         "GitHub Release",
-        "2026-11-12",
-        "100 registrations",
-        "5 percent",
+        "client_id_metadata_document_supported=true",
+        "repository-maintainer",
+        "zero successful DCR use",
         "90 days",
         "30 days",
         "no legacy compatibility window",

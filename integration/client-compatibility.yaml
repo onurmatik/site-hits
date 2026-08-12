@@ -1,17 +1,38 @@
 {
   "schema_version": 1,
-  "matrix_version": "1.0.0",
-  "registration_policy": "dcr-only",
+  "matrix_version": "1.1.0",
+  "registration_policy": {
+    "preferred": "cimd",
+    "fallback": "dcr",
+    "owner_role": "repository-maintainer",
+    "review_interval_days": 90,
+    "review_triggers": [
+      "mcp-authorization-spec-change",
+      "required-client-registration-or-callback-change",
+      "public-plugin-submission",
+      "oauth-security-incident"
+    ],
+    "removal_evidence": {
+      "all_supported_clients_non_dcr": false,
+      "successful_dcr_usage_zero_days": 0,
+      "minimum_zero_use_days": 90,
+      "status": "not-eligible"
+    }
+  },
   "clients": [
     {
       "client": "chatgpt",
       "display_name": "ChatGPT",
       "surface": "web",
       "tier": "primary",
+      "tested_version": null,
       "transport": "streamable-http",
-      "registration_method": "dcr",
+      "registration_method": "cimd",
+      "fallback_registration_method": "dcr",
       "callback_profile": "exact-https",
-      "support_status": "supported",
+      "support_status": "pending-acceptance",
+      "tested_at": null,
+      "evidence": null,
       "release_acceptance": "required"
     },
     {
@@ -19,10 +40,29 @@
       "display_name": "Codex",
       "surface": "desktop-cli",
       "tier": "primary",
+      "tested_version": null,
       "transport": "streamable-http",
-      "registration_method": "dcr",
+      "registration_method": "cimd",
+      "fallback_registration_method": "dcr",
       "callback_profile": "ip-loopback-dynamic-port",
-      "support_status": "supported",
+      "support_status": "pending-acceptance",
+      "tested_at": null,
+      "evidence": null,
+      "release_acceptance": "required"
+    },
+    {
+      "client": "claude",
+      "display_name": "Claude/Claude Desktop",
+      "surface": "remote-connector",
+      "tier": "cross-agent",
+      "tested_version": null,
+      "transport": "streamable-http",
+      "registration_method": "cimd",
+      "fallback_registration_method": "dcr",
+      "callback_profile": "claude-exact-https",
+      "support_status": "pending-acceptance",
+      "tested_at": null,
+      "evidence": null,
       "release_acceptance": "required"
     },
     {
@@ -30,10 +70,14 @@
       "display_name": "Claude Code",
       "surface": "cli",
       "tier": "cross-agent",
+      "tested_version": null,
       "transport": "streamable-http",
-      "registration_method": "dcr",
+      "registration_method": "cimd",
+      "fallback_registration_method": "dcr",
       "callback_profile": "localhost-loopback-dynamic-port",
-      "support_status": "supported",
+      "support_status": "pending-acceptance",
+      "tested_at": null,
+      "evidence": null,
       "release_acceptance": "required"
     },
     {
@@ -41,10 +85,14 @@
       "display_name": "MCP Inspector",
       "surface": "diagnostic",
       "tier": "diagnostic",
+      "tested_version": null,
       "transport": "streamable-http",
-      "registration_method": "dcr",
+      "registration_method": "cimd",
+      "fallback_registration_method": "dcr",
       "callback_profile": "exact-https-or-ip-loopback",
-      "support_status": "diagnostic",
+      "support_status": "pending-diagnostic",
+      "tested_at": null,
+      "evidence": null,
       "release_acceptance": "diagnostic"
     }
   ]

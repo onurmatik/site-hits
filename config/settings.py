@@ -367,6 +367,12 @@ SITEHITS_MCP_ACCESS_TOKEN_TTL_SECONDS = 15 * 60
 SITEHITS_MCP_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60
 SITEHITS_MCP_AUTHORIZATION_CODE_TTL_SECONDS = 60
 SITEHITS_MCP_AUTHORIZATION_REQUEST_TTL_SECONDS = 10 * 60
+SITEHITS_MCP_CIMD_ENABLED = True
+SITEHITS_MCP_CIMD_FETCH_TIMEOUT_SECONDS = 3.0
+SITEHITS_MCP_CIMD_MAX_DOCUMENT_BYTES = 8 * 1024
+SITEHITS_MCP_CIMD_MIN_CACHE_SECONDS = 5 * 60
+SITEHITS_MCP_CIMD_MAX_CACHE_SECONDS = 60 * 60
+SITEHITS_MCP_CIMD_MAX_CONCURRENT_FETCHES = 10
 SITEHITS_MCP_CORS_ORIGINS = env_list(
     "SITEHITS_MCP_CORS_ORIGINS",
     default=(
@@ -443,6 +449,9 @@ OAUTH2_PROVIDER = {
     "DCR_REGISTRATION_PERMISSION_CLASSES": (
         "oauth2_provider.dcr.AllowAllDCRPermission",
     ),
+    # SiteHits resolves CIMD in django-embedded-mcp before DOT handles the
+    # grant. DOT's independent resolver is kept off so it cannot authorize
+    # stale metadata or create a second client-registration policy path.
     "CIMD_ENABLED": False,
     "OIDC_ENABLED": False,
     # DOT also uses this setting for RFC 9207 authorization-response `iss`.

@@ -20,7 +20,7 @@
       "runtime_artifact_ref_pattern": "ghcr.io/onurmatik/site-hits@{image_digest}",
       "acceptance_evidence_store": "github_release_asset",
       "digest_algorithm": "sha256",
-      "consumer_resolution": "Resolve the MCP descriptor from the immutable GitHub Release, verify its digest, pinned Agent Contract descriptor and Contract digests, GHCR image digest, canonical registry digest, client compatibility matrix digest, and immutable ChatGPT-plus-Codex-plus-Claude-Code smoke evidence before promotion."
+      "consumer_resolution": "Resolve the MCP descriptor from the immutable GitHub Release, verify its digest, pinned Agent Contract descriptor and Contract digests, GHCR image digest, canonical registry digest, client compatibility matrix digest, and immutable ChatGPT-plus-Codex-plus-Claude-plus-Claude-Code CIMD-and-DCR smoke evidence before promotion."
     },
     "standalone_skill": {
       "authoritative_store": "github_release_asset",

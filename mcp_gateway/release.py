@@ -32,7 +32,12 @@ RESOURCE = "https://sitehits.io/mcp"
 DEFAULT_CLIENT_COMPATIBILITY_PATH = (
     Path(__file__).resolve().parents[1] / "integration" / "client-compatibility.yaml"
 )
-REQUIRED_ACCEPTANCE_CLIENTS = ("ChatGPT", "Codex", "Claude Code")
+REQUIRED_ACCEPTANCE_CLIENTS = (
+    "ChatGPT",
+    "Codex",
+    "Claude/Claude Desktop",
+    "Claude Code",
+)
 REQUIRED_DIAGNOSTIC_CLIENTS = ("MCP Inspector",)
 REQUIRED_SMOKE_FLOWS = {
     "discovery",
@@ -112,18 +117,66 @@ def _validate_client_compatibility(
         matrix["matrix_version"]
     ):
         raise ValueError("Client compatibility matrix_version must be SemVer")
-    if matrix["registration_policy"] != "dcr-only":
-        raise ValueError("Client compatibility registration_policy must match the Stage 1 ADR")
+    policy = matrix["registration_policy"]
+    policy_keys = {
+        "preferred",
+        "fallback",
+        "owner_role",
+        "review_interval_days",
+        "review_triggers",
+        "removal_evidence",
+    }
+    if not isinstance(policy, dict) or set(policy) != policy_keys:
+        raise ValueError("Client compatibility registration_policy is not canonical")
+    if (
+        policy["preferred"] != "cimd"
+        or policy["fallback"] != "dcr"
+        or policy["owner_role"] != "repository-maintainer"
+        or policy["review_interval_days"] != 90
+    ):
+        raise ValueError("Client compatibility must be CIMD-first with managed DCR fallback")
+    expected_triggers = {
+        "mcp-authorization-spec-change",
+        "required-client-registration-or-callback-change",
+        "public-plugin-submission",
+        "oauth-security-incident",
+    }
+    if (
+        not isinstance(policy["review_triggers"], list)
+        or set(policy["review_triggers"]) != expected_triggers
+        or len(policy["review_triggers"]) != len(expected_triggers)
+    ):
+        raise ValueError("Client compatibility DCR review triggers are incomplete")
+    removal = policy["removal_evidence"]
+    if not isinstance(removal, dict) or set(removal) != {
+        "all_supported_clients_non_dcr",
+        "successful_dcr_usage_zero_days",
+        "minimum_zero_use_days",
+        "status",
+    }:
+        raise ValueError("Client compatibility DCR removal evidence is not canonical")
+    if (
+        not isinstance(removal["all_supported_clients_non_dcr"], bool)
+        or not isinstance(removal["successful_dcr_usage_zero_days"], int)
+        or removal["successful_dcr_usage_zero_days"] < 0
+        or removal["minimum_zero_use_days"] != 90
+        or removal["status"] not in {"not-eligible", "eligible"}
+    ):
+        raise ValueError("Client compatibility DCR removal evidence is invalid")
 
     record_keys = {
         "client",
         "display_name",
         "surface",
         "tier",
+        "tested_version",
         "transport",
         "registration_method",
+        "fallback_registration_method",
         "callback_profile",
         "support_status",
+        "tested_at",
+        "evidence",
         "release_acceptance",
     }
     records = matrix["clients"]
@@ -132,16 +185,31 @@ def _validate_client_compatibility(
     for record in records:
         if not isinstance(record, dict) or set(record) != record_keys:
             raise ValueError("Each client compatibility record must use the canonical fields")
-        for field in record_keys:
+        nullable_evidence_fields = {"tested_version", "tested_at", "evidence"}
+        for field in record_keys - nullable_evidence_fields:
             if not isinstance(record[field], str) or not record[field]:
                 raise ValueError(f"Client compatibility {field} must be a non-empty string")
+        evidence_values = tuple(record[field] for field in nullable_evidence_fields)
+        if any(value is not None for value in evidence_values) and not all(
+            isinstance(value, str) and value for value in evidence_values
+        ):
+            raise ValueError("Client compatibility evidence fields must be all null or all set")
         if record["transport"] != "streamable-http":
             raise ValueError("Every Stage 1 client must use Streamable HTTP")
-        if record["registration_method"] != "dcr":
-            raise ValueError("Every Stage 1 client must match the DCR-only ADR")
+        if (
+            record["registration_method"] != "cimd"
+            or record["fallback_registration_method"] != "dcr"
+        ):
+            raise ValueError("Every Stage 1 client must declare CIMD and DCR acceptance")
         if record["tier"] not in {"primary", "cross-agent", "diagnostic"}:
             raise ValueError("Client compatibility tier is unsupported")
-        if record["support_status"] not in {"supported", "diagnostic"}:
+        if record["support_status"] not in {
+            "pending-acceptance",
+            "pending-diagnostic",
+            "supported",
+            "experimental",
+            "excluded",
+        }:
             raise ValueError("Client compatibility support_status is unsupported")
         if record["release_acceptance"] not in {"required", "diagnostic"}:
             raise ValueError("Client compatibility release_acceptance is unsupported")
@@ -162,7 +230,7 @@ def _validate_client_compatibility(
     )
     if acceptance != REQUIRED_ACCEPTANCE_CLIENTS:
         raise ValueError(
-            "Client compatibility must require ChatGPT, Codex, and Claude Code in order"
+            "Client compatibility must require the primary and cross-agent baseline in order"
         )
     if diagnostics != REQUIRED_DIAGNOSTIC_CLIENTS:
         raise ValueError("Client compatibility must retain MCP Inspector as diagnostic")
@@ -200,13 +268,36 @@ def _validate_smoke_evidence(
     diagnostics = evidence["diagnostic_clients"]
     if not isinstance(clients, dict) or set(clients) != set(REQUIRED_ACCEPTANCE_CLIENTS):
         raise ValueError(
-            "Smoke evidence must cover exactly ChatGPT, Codex, and Claude Code"
+            "Smoke evidence must cover the exact primary and cross-agent baseline"
         )
     if not isinstance(diagnostics, dict) or set(diagnostics) != set(REQUIRED_DIAGNOSTIC_CLIENTS):
         raise ValueError("MCP Inspector must be recorded as a diagnostic client")
-    for name, version in {**clients, **diagnostics}.items():
-        if not isinstance(version, str) or not version.strip():
-            raise ValueError(f"Smoke client {name} must have an exact tested version")
+    records_by_name = {record["display_name"]: record for record in client_records}
+    evidence_record_keys = {
+        "tested_version",
+        "registration_method",
+        "registration_status",
+        "fallback_registration_method",
+        "fallback_status",
+    }
+    for name, client_evidence in {**clients, **diagnostics}.items():
+        if not isinstance(client_evidence, dict) or set(client_evidence) != evidence_record_keys:
+            raise ValueError(f"Smoke client {name} evidence is not canonical")
+        matrix_record = records_by_name[name]
+        diagnostic = matrix_record["release_acceptance"] == "diagnostic"
+        expected_status = "diagnostic-passed" if diagnostic else "passed"
+        if (
+            not isinstance(client_evidence["tested_version"], str)
+            or not client_evidence["tested_version"].strip()
+            or client_evidence["registration_method"] != matrix_record["registration_method"]
+            or client_evidence["registration_status"] != expected_status
+            or client_evidence["fallback_registration_method"]
+            != matrix_record["fallback_registration_method"]
+            or client_evidence["fallback_status"] != expected_status
+        ):
+            raise ValueError(
+                f"Smoke client {name} must pass exact CIMD and DCR fallback acceptance"
+            )
     flows = evidence["flows"]
     if (
         not isinstance(flows, list)
@@ -238,27 +329,28 @@ def _validate_smoke_evidence(
     )
     if not evidence_uri.startswith(release_prefix):
         raise ValueError("Smoke evidence_uri must use the server version's immutable release tag")
-    client = "; ".join(f"{name} {clients[name]}" for name in REQUIRED_ACCEPTANCE_CLIENTS)
+    client = "; ".join(
+        f"{name} {clients[name]['tested_version']}"
+        for name in REQUIRED_ACCEPTANCE_CLIENTS
+    )
     smoke = {
         "client": client,
         "tested_at": tested_at,
         "evidence_uri": evidence_uri,
     }
-    all_versions = {**clients, **diagnostics}
+    all_evidence = {**clients, **diagnostics}
     acceptance = [
         {
             "client": record["client"],
             "surface": record["surface"],
             "tier": record["tier"],
-            "tested_version": all_versions[record["display_name"]],
+            "tested_version": all_evidence[record["display_name"]]["tested_version"],
             "transport": record["transport"],
             "registration_method": record["registration_method"],
+            "fallback_registration_method": record["fallback_registration_method"],
+            "fallback_status": all_evidence[record["display_name"]]["fallback_status"],
             "callback_profile": record["callback_profile"],
-            "status": (
-                "passed"
-                if record["release_acceptance"] == "required"
-                else "diagnostic-passed"
-            ),
+            "status": all_evidence[record["display_name"]]["registration_status"],
             "tested_at": tested_at,
             "evidence_uri": evidence_uri,
         }

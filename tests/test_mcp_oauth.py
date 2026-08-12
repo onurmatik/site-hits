@@ -68,8 +68,17 @@ def _registration_payload(
     scopes: str = "read write",
     **overrides,
 ) -> dict[str, object]:
+    resolved_redirects = redirect_uris or [REDIRECT_URI]
     payload: dict[str, object] = {
-        "redirect_uris": redirect_uris or [REDIRECT_URI],
+        "redirect_uris": resolved_redirects,
+        "application_type": (
+            "native"
+            if all(
+                isinstance(uri, str) and uri.startswith("http://")
+                for uri in resolved_redirects
+            )
+            else "web"
+        ),
         "client_name": "Stage 1 conformance client",
         "grant_types": ["authorization_code", "refresh_token"],
         "response_types": ["code"],
@@ -294,6 +303,7 @@ def test_standard_metadata_endpoints_publish_only_working_oauth_profile():
         "revocation_endpoint_auth_methods_supported": ["none"],
         "code_challenge_methods_supported": ["S256"],
         "authorization_response_iss_parameter_supported": True,
+        "client_id_metadata_document_supported": True,
         "scopes_supported": list(settings.SITEHITS_MCP_OAUTH_SCOPES),
         "service_documentation": settings.SITEHITS_MCP_DOCUMENTATION_URL,
     }
@@ -307,7 +317,7 @@ def test_standard_metadata_endpoints_publish_only_working_oauth_profile():
     }
     assert root_protected.json() == expected_protected
     assert path_protected.json() == expected_protected
-    assert "client_id_metadata_document_supported" not in authorization.json()
+    assert authorization.json()["client_id_metadata_document_supported"] is True
 
 
 def test_dcr_public_profile_limits_and_digest_only_audit():
@@ -484,6 +494,7 @@ def test_dcr_endpoint_preserves_valid_unicode_client_name_and_metadata():
     assert application.metadata == {
         "contacts": contacts,
         "software_id": "ölçüm-agent",
+        "application_type": "native",
     }
 
 
@@ -839,7 +850,6 @@ def test_authorize_redirect_matrix_allows_only_loopback_port_variation():
         redirect_uris=[
             "http://127.0.0.1:31000/callback?fixed=1",
             "http://localhost:31000/callback",
-            OTHER_HTTPS_REDIRECT,
         ],
     ).json()
     _, challenge = _pkce()
@@ -1709,6 +1719,7 @@ def test_token_revoke_and_dcr_reject_ambiguous_duplicate_parameters():
         "/oauth/register/",
         data=(
             '{"redirect_uris":["http://127.0.0.1:43127/callback"],'
+            '"application_type":"native",'
             '"token_endpoint_auth_method":"none",'
             '"token_endpoint_auth_method":"client_secret_post"}'
         ),

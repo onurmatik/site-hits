@@ -1,4 +1,4 @@
-"""Pure RFC 7591 policy for the Stage 1 DCR-only public-client profile."""
+"""Pure RFC 7591 policy for the Stage 1 public-client fallback profile."""
 
 from __future__ import annotations
 
@@ -7,9 +7,10 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 from unicodedata import category
+from urllib.parse import urlsplit
 
 from .oauth import normalize_scopes
-from .redirects import validate_registered_redirect_uri
+from .redirects import LOOPBACK_HOSTS, validate_registered_redirect_uri
 
 DCR_METADATA_FIELDS = (
     "client_uri",
@@ -39,6 +40,7 @@ class PublicClientRegistration:
     """Validated public-client registration fields consumed by a product model."""
 
     redirect_uris: tuple[str, ...]
+    application_type: str
     scopes: tuple[str, ...]
     client_name: str
     metadata: Mapping[str, Any]
@@ -96,7 +98,7 @@ def parse_public_client_registration(
     max_redirect_uris: int = 10,
     allow_localhost: bool = False,
 ) -> PublicClientRegistration:
-    """Validate the fixed DCR-only Authorization Code + Refresh profile."""
+    """Validate the DCR fallback's fixed public-client profile."""
 
     if not isinstance(body, (bytes, bytearray)):
         raise DynamicClientRegistrationError(
@@ -166,6 +168,27 @@ def parse_public_client_registration(
             str(exc),
         ) from exc
 
+    application_type = data.get("application_type")
+    if application_type not in {"web", "native"}:
+        raise DynamicClientRegistrationError(
+            "invalid_client_metadata",
+            "application_type must be web or native.",
+        )
+    if application_type == "web":
+        profile_matches = all(urlsplit(uri).scheme == "https" for uri in redirect_uris)
+    else:
+        allowed_loopbacks = LOOPBACK_HOSTS | ({"localhost"} if allow_localhost else set())
+        profile_matches = all(
+            urlsplit(uri).scheme == "http"
+            and urlsplit(uri).hostname in allowed_loopbacks
+            for uri in redirect_uris
+        )
+    if not profile_matches:
+        raise DynamicClientRegistrationError(
+            "invalid_redirect_uri",
+            "redirect_uris do not match application_type.",
+        )
+
     if data.get("token_endpoint_auth_method") != "none":
         raise DynamicClientRegistrationError(
             "invalid_client_metadata",
@@ -223,8 +246,10 @@ def parse_public_client_registration(
             "client_name must be valid Unicode without control characters and no longer than 255 characters.",
         )
     metadata = _validated_metadata(data)
+    metadata["application_type"] = application_type
     return PublicClientRegistration(
         redirect_uris=tuple(redirect_uris),
+        application_type=application_type,
         scopes=tuple(scopes),
         client_name=client_name,
         metadata=metadata,

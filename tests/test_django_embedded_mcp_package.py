@@ -13,10 +13,12 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import django_embedded_mcp
+import django_embedded_mcp.cimd as cimd_module
 import pytest
 from django.test import override_settings
 from django.utils import timezone
 from django_embedded_mcp import (
+    CIMDError,
     DigestDjangoOAuthToolkitTokenVerifier,
     DynamicClientRegistrationError,
     ExactResourceError,
@@ -25,6 +27,8 @@ from django_embedded_mcp import (
     RefreshFamilyPolicy,
     RefreshFamilyState,
     RefreshMemberState,
+    SafeCIMDFetcher,
+    address_is_public,
     build_auth_failure_challenge,
     build_authorization_server_metadata,
     build_bearer_challenge,
@@ -37,6 +41,9 @@ from django_embedded_mcp import (
     non_header_bearer_sources,
     parse_public_client_registration,
     redirect_uri_matches,
+    resolve_public_addresses,
+    validate_cimd_client_id,
+    validate_cimd_document,
     validate_registered_redirect_uri,
 )
 from mcp.server.auth.provider import TokenVerifier
@@ -85,6 +92,7 @@ def test_metadata_builders_own_protocol_profile_but_accept_product_identity():
         issuer=ISSUER,
         scopes_supported=("account:read", "site:write"),
         service_documentation=f"{ISSUER}/docs/mcp/",
+        client_id_metadata_document_supported=True,
     )
     assert authorization == {
         "issuer": ISSUER,
@@ -98,6 +106,7 @@ def test_metadata_builders_own_protocol_profile_but_accept_product_identity():
         "revocation_endpoint_auth_methods_supported": ["none"],
         "code_challenge_methods_supported": ["S256"],
         "authorization_response_iss_parameter_supported": True,
+        "client_id_metadata_document_supported": True,
         "scopes_supported": ["account:read", "site:write"],
         "service_documentation": f"{ISSUER}/docs/mcp/",
     }
@@ -113,6 +122,233 @@ def test_metadata_builders_own_protocol_profile_but_accept_product_identity():
         "resource_name": "Product analytics MCP",
     }
     assert "scopes_supported" not in protected
+
+
+def _cimd_body(client_id="https://client.example/oauth/client.json", **overrides):
+    payload = {
+        "client_id": client_id,
+        "client_name": "Example client",
+        "redirect_uris": ["https://client.example/oauth/callback"],
+        "application_type": "web",
+        "grant_types": ["authorization_code", "refresh_token"],
+        "response_types": ["code"],
+        "token_endpoint_auth_method": "none",
+        "scope": "account:read site:write",
+    }
+    payload.update(overrides)
+    return json.dumps(payload).encode()
+
+
+def test_cimd_document_validation_is_exact_bounded_and_cache_aware():
+    client_id = "https://client.example/oauth/client.json"
+    document = validate_cimd_document(
+        _cimd_body(client_id),
+        expected_client_id=client_id,
+        cache_control="public, max-age=7200",
+        supported_scopes=("account:read", "site:write"),
+        required_scopes=("account:read",),
+        default_scopes=("account:read",),
+        minimum_cache_seconds=300,
+        maximum_cache_seconds=3600,
+    )
+    assert document.client_id == client_id
+    assert document.application_type == "web"
+    assert document.scopes == ("account:read", "site:write")
+    assert document.max_age_seconds == 3600
+    assert re.fullmatch(r"[0-9a-f]{64}", document.document_sha256)
+
+    no_store = validate_cimd_document(
+        _cimd_body(client_id),
+        expected_client_id=client_id,
+        cache_control="no-store",
+        supported_scopes=("account:read", "site:write"),
+        required_scopes=("account:read",),
+        default_scopes=("account:read",),
+        minimum_cache_seconds=300,
+        maximum_cache_seconds=3600,
+    )
+    assert no_store.max_age_seconds == 300
+
+    aged = validate_cimd_document(
+        _cimd_body(client_id),
+        expected_client_id=client_id,
+        cache_control="public, max-age=3600",
+        supported_scopes=("account:read", "site:write"),
+        required_scopes=("account:read",),
+        default_scopes=("account:read",),
+        minimum_cache_seconds=300,
+        maximum_cache_seconds=3600,
+        response_age_seconds=3500,
+    )
+    assert aged.max_age_seconds == 300
+
+    with pytest.raises(CIMDError, match="max-age is invalid"):
+        validate_cimd_document(
+            _cimd_body(client_id),
+            expected_client_id=client_id,
+            cache_control="max-age=invalid",
+            supported_scopes=("account:read", "site:write"),
+            required_scopes=("account:read",),
+            default_scopes=("account:read",),
+            minimum_cache_seconds=300,
+            maximum_cache_seconds=3600,
+        )
+
+
+@pytest.mark.parametrize(
+    "client_id",
+    [
+        "http://client.example/oauth/client.json",
+        "HTTPS://client.example/oauth/client.json",
+        "https://CLIENT.example/oauth/client.json",
+        "https://user@client.example/oauth/client.json",
+        "https://client.example",
+        "https://client.example/oauth/client.json?variant=1",
+        "https://client.example/oauth/client.json?",
+        "https://client.example/oauth/client.json#fragment",
+        "https://client.example/oauth/client.json#",
+        "https://client.example/oauth/../client.json",
+        "https://client.example/oauth%2F../client.json",
+        "https://client.example:/oauth/client.json",
+        "https://client.example/oauth/cliënt.json",
+        "https://127.0.0.1/oauth/client.json",
+    ],
+)
+def test_cimd_client_id_rejects_noncanonical_or_unsafe_urls(client_id):
+    if client_id.startswith("https://127.0.0.1"):
+        assert validate_cimd_client_id(client_id).hostname == "127.0.0.1"
+        with pytest.raises(CIMDError, match="not public"):
+            resolve_public_addresses(
+                "127.0.0.1",
+                443,
+                resolver=lambda *args, **kwargs: [
+                    (2, 1, 6, "", ("127.0.0.1", 443))
+                ],
+            )
+        return
+    with pytest.raises(CIMDError):
+        validate_cimd_client_id(client_id)
+
+
+def test_cimd_dns_policy_rejects_mixed_or_embedded_private_answers():
+    for address in (
+        "127.0.0.1",
+        "10.0.0.1",
+        "169.254.169.254",
+        "::1",
+        "::ffff:169.254.169.254",
+        "64:ff9b::a9fe:a9fe",
+    ):
+        assert not address_is_public(address)
+    assert address_is_public("8.8.8.8")
+    assert address_is_public("2606:4700:4700::1111")
+
+    def mixed_resolver(*args, **kwargs):
+        return [
+            (2, 1, 6, "", ("8.8.8.8", 443)),
+            (2, 1, 6, "", ("10.0.0.1", 443)),
+        ]
+
+    with pytest.raises(CIMDError, match="not public"):
+        resolve_public_addresses("client.example", 443, resolver=mixed_resolver)
+
+
+class _CIMDResponse:
+    def __init__(self, *, status=200, body=b"{}", headers=None):
+        self.status = status
+        self.body = body
+        self.headers = headers or {"Content-Type": "application/json"}
+
+    def read(self, amount, decode_content=False):
+        return self.body[:amount]
+
+    def release_conn(self):
+        return None
+
+
+def test_cimd_response_policy_rejects_redirect_compression_and_oversize():
+    fetcher = SafeCIMDFetcher(
+        timeout_seconds=1,
+        max_document_bytes=128,
+        minimum_cache_seconds=300,
+        maximum_cache_seconds=3600,
+        max_concurrent_fetches=1,
+    )
+    kwargs = {
+        "client_id": "https://client.example/oauth/client.json",
+        "supported_scopes": ("account:read",),
+        "required_scopes": ("account:read",),
+        "default_scopes": ("account:read",),
+    }
+    with pytest.raises(CIMDError, match="non-200"):
+        fetcher._read_response(_CIMDResponse(status=302), **kwargs)
+    with pytest.raises(CIMDError, match="compressed"):
+        fetcher._read_response(
+            _CIMDResponse(headers={
+                "Content-Type": "application/json",
+                "Content-Encoding": "gzip",
+            }),
+            **kwargs,
+        )
+    with pytest.raises(CIMDError, match="too large"):
+        fetcher._read_response(_CIMDResponse(body=b"x" * 129), **kwargs)
+    with pytest.raises(CIMDError, match="Age header is invalid"):
+        fetcher._read_response(
+            _CIMDResponse(headers={
+                "Content-Type": "application/json",
+                "Age": "invalid",
+            }),
+            **kwargs,
+        )
+
+
+def test_cimd_fetch_connects_to_the_vetted_ip_with_origin_tls_identity(monkeypatch):
+    captured = {}
+
+    class FakePool:
+        def __init__(self, **kwargs):
+            captured["pool"] = kwargs
+
+        def urlopen(self, method, path, **kwargs):
+            captured["request"] = {"method": method, "path": path, **kwargs}
+            return _CIMDResponse(
+                body=_cimd_body(),
+                headers={
+                    "Content-Type": "application/json",
+                    "Cache-Control": "max-age=600",
+                },
+            )
+
+        def close(self):
+            captured["closed"] = True
+
+    monkeypatch.setattr(cimd_module.urllib3, "HTTPSConnectionPool", FakePool)
+    fetcher = SafeCIMDFetcher(
+        timeout_seconds=1,
+        max_document_bytes=8 * 1024,
+        minimum_cache_seconds=300,
+        maximum_cache_seconds=3600,
+        max_concurrent_fetches=1,
+        resolver=lambda *args, **kwargs: [
+            (2, 1, 6, "", ("8.8.8.8", 443)),
+        ],
+    )
+
+    document = fetcher.fetch(
+        "https://client.example/oauth/client.json",
+        supported_scopes=("account:read", "site:write"),
+        required_scopes=("account:read",),
+        default_scopes=("account:read",),
+    )
+
+    assert document.client_id == "https://client.example/oauth/client.json"
+    assert captured["pool"]["host"] == "8.8.8.8"
+    assert captured["pool"]["server_hostname"] == "client.example"
+    assert captured["pool"]["assert_hostname"] == "client.example"
+    assert captured["request"]["path"] == "/oauth/client.json"
+    assert captured["request"]["headers"]["Host"] == "client.example"
+    assert captured["request"]["redirect"] is False
+    assert captured["closed"] is True
 
 
 def test_bearer_challenge_is_deterministic_and_rejects_header_injection():
@@ -159,6 +395,7 @@ def test_dcr_policy_returns_only_validated_product_model_inputs():
             {
                 "client_name": "Agent client",
                 "redirect_uris": ["http://127.0.0.1:48100/callback"],
+                "application_type": "native",
                 "grant_types": ["authorization_code", "refresh_token"],
                 "response_types": ["code"],
                 "token_endpoint_auth_method": "none",
@@ -174,13 +411,18 @@ def test_dcr_policy_returns_only_validated_product_model_inputs():
         "http://127.0.0.1:48100/callback",
     )
     assert registration.scopes == ("account:read", "site:write")
-    assert registration.metadata == {"software_id": "agent-host"}
+    assert registration.application_type == "native"
+    assert registration.metadata == {
+        "software_id": "agent-host",
+        "application_type": "native",
+    }
 
     with pytest.raises(ValueError, match="token_endpoint_auth_method must be none"):
         parse_public_client_registration(
             json.dumps(
                 {
                     "redirect_uris": ["https://agent.example/callback"],
+                    "application_type": "web",
                     "token_endpoint_auth_method": "client_secret_post",
                 }
             ).encode(),
@@ -192,6 +434,7 @@ def test_dcr_policy_returns_only_validated_product_model_inputs():
         parse_public_client_registration(
             (
                 b'{"redirect_uris":["https://agent.example/callback"],'
+                b'"application_type":"web",'
                 b'"token_endpoint_auth_method":"none",'
                 b'"token_endpoint_auth_method":"client_secret_post"}'
             ),
@@ -227,6 +470,7 @@ def test_dcr_policy_rejects_non_string_profile_list_members(
 ):
     payload = {
         "redirect_uris": ["https://agent.example/callback"],
+        "application_type": "web",
         "grant_types": ["authorization_code", "refresh_token"],
         "response_types": ["code"],
         "token_endpoint_auth_method": "none",
@@ -248,6 +492,7 @@ def test_dcr_policy_rejects_non_string_profile_list_members(
 def test_dcr_policy_rejects_non_json_numeric_constants(constant):
     body = (
         b'{"redirect_uris":["https://agent.example/callback"],'
+        b'"application_type":"web",'
         b'"token_endpoint_auth_method":"none","unknown":'
         + constant
         + b"}"
@@ -298,6 +543,7 @@ def test_dcr_policy_maps_decode_type_and_recursion_failures_to_protocol_error(bo
 def test_dcr_policy_rejects_unpersistable_metadata(field, value):
     payload = {
         "redirect_uris": ["https://agent.example/callback"],
+        "application_type": "web",
         "token_endpoint_auth_method": "none",
         field: value,
     }
@@ -337,6 +583,9 @@ def test_dcr_policy_rejects_unpersistable_metadata(field, value):
         "https://agent.example/callback%GG",
         "https://agent.example/callback%2G",
         "https://localhost/callback",
+        "https://127.0.0.1/callback",
+        "https://10.0.0.1/callback",
+        "https://[::1]/callback",
         "https://0.0.0.0/callback",
         "https://[::]/callback",
     ],
@@ -350,6 +599,7 @@ def test_redirect_policy_rejects_raw_parser_ambiguity_everywhere(redirect_uri):
             json.dumps(
                 {
                     "redirect_uris": [redirect_uri],
+                    "application_type": "web",
                     "token_endpoint_auth_method": "none",
                 }
             ).encode(),
@@ -400,6 +650,7 @@ def test_redirect_policy_can_opt_in_to_exact_http_localhost_for_claude_code():
         json.dumps(
             {
                 "redirect_uris": [registered],
+                "application_type": "native",
                 "token_endpoint_auth_method": "none",
             }
         ).encode(),
@@ -423,6 +674,7 @@ def test_redirect_policy_accepts_rfc3986_ascii_and_valid_percent_escapes():
 def test_dcr_client_name_accepts_unicode_but_rejects_unpaired_surrogates():
     payload = {
         "redirect_uris": ["https://agent.example/callback"],
+        "application_type": "web",
         "token_endpoint_auth_method": "none",
         "client_name": "Ölçüm Agent’ı 🚀",
     }

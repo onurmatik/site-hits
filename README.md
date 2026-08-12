@@ -133,10 +133,13 @@ Clients discover the authorization server from the `401` challenge and public pr
 metadata. Authentication uses Authorization Code with PKCE `S256`; dynamic registration accepts
 public clients and issued access tokens are bound to the canonical MCP resource.
 
-This release implements the public-client DCR path with Django OAuth Toolkit 3.4 and the official
-Python MCP SDK 2.0. CIMD is deliberately not advertised in V1; the dated DCR review triggers and
-operational acceptance requirements are recorded in
-`agent/decisions/0002-mcp-oauth-v1.yaml`.
+This release is CIMD-first with DCR retained as a compatibility fallback. URL-shaped public client
+IDs are fetched through the shared `django-embedded-mcp` SSRF-safe adapter with DNS-pinned TLS,
+bounded responses, and validated cache lifetimes; expired metadata fails closed if it cannot be
+refreshed. Django OAuth Toolkit 3.4 remains the grant/token core and its
+independent CIMD resolver is disabled to avoid parallel policy paths. DCR requires an explicit
+`web` or `native` application profile and remains subject to the role-owned 90-day review/removal
+gate in `agent/decisions/0002-mcp-oauth-v1.yaml`.
 
 For Codex, install the plugin and start its native OAuth flow:
 
@@ -144,16 +147,17 @@ For Codex, install the plugin and start its native OAuth flow:
 codex mcp login --scopes read,write sitehits
 ```
 
-Claude Code is the required cross-agent acceptance client. Configure and authenticate it with its
-native user-scope commands:
+Claude/Claude Desktop and Claude Code are required cross-agent acceptance clients. Configure and
+authenticate Claude Code with its native user-scope commands:
 
 ```bash
 claude mcp add --transport http --scope user sitehits https://sitehits.io/mcp
 claude mcp login sitehits
 ```
 
-The production release descriptor pins `integration/client-compatibility.yaml` and immutable smoke
-evidence for ChatGPT, Codex, and Claude Code. MCP Inspector remains diagnostic only.
+The production release descriptor pins `integration/client-compatibility.yaml` and immutable CIMD
+plus DCR-fallback evidence for ChatGPT, Codex, Claude/Claude Desktop, and Claude Code. MCP Inspector
+remains diagnostic only.
 
 The consent page uses the existing SiteHits sign-in. An authenticated MCP client has the same
 resource ownership boundary as its linked Django user: superusers can access every site and regular

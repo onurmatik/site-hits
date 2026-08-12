@@ -15,19 +15,19 @@
     },
     {
       "id": "client-matrix",
-      "decision": "ChatGPT and Codex are the primary v1 production acceptance clients. Claude Code is the required cross-agent acceptance client. MCP Inspector is diagnostic only and cannot by itself satisfy release acceptance. The versioned policy source is integration/client-compatibility.yaml; every MCP descriptor pins its exact SHA-256 digest and seals exact client builds in immutable release evidence."
+      "decision": "ChatGPT and Codex are the primary v1 production acceptance clients. Claude/Claude Desktop and Claude Code are required cross-agent acceptance clients. MCP Inspector is diagnostic only and cannot by itself satisfy release acceptance. The versioned policy source is integration/client-compatibility.yaml; every MCP descriptor pins its exact SHA-256 digest and seals exact client builds plus both CIMD and DCR-path results in immutable release evidence."
     },
     {
       "id": "callback-matrix",
-      "decision": "ChatGPT may register an exact HTTPS callback. Codex may register 127.0.0.1 or [::1] HTTP loopback callbacks whose ephemeral port may vary while path and query remain exact. Claude Code may register lowercase http://localhost:<port>/callback; its ephemeral port may vary while host and /callback path remain exact. MCP Inspector uses the same HTTPS or IP-loopback policy for diagnostics. HTTPS localhost, uppercase LOCALHOST, 0.0.0.0, wildcard, userinfo, fragments, and unregistered paths remain unsupported."
+      "decision": "ChatGPT uses its exact HTTPS callback. Claude/Claude Desktop uses exact https://claude.ai/api/mcp/auth_callback or the separately evidenced https://claude.com/api/mcp/auth_callback transition profile. DCR-native Codex may register 127.0.0.1 or [::1] HTTP loopback callbacks whose ephemeral port may vary while path and query remain exact. DCR-native Claude Code may register lowercase http://localhost:<port>/callback with a varying port and exact host/path. CIMD redirect URIs always match the fetched document exactly and do not inherit DCR port flexibility. HTTPS localhost, HTTPS non-public IP literals, uppercase LOCALHOST, 0.0.0.0, wildcard, userinfo, fragments, and unregistered paths remain unsupported."
     },
     {
-      "id": "dcr-only",
-      "decision": "V1 uses DCR-only public clients with Authorization Code, Refresh Token, and PKCE S256. CIMD is not advertised. DCR ownership remains with Onur."
+      "id": "cimd-first",
+      "decision": "V1 is CIMD-first for public clients and advertises client_id_metadata_document_supported=true. URL-shaped client IDs are fetched only by the versioned django-embedded-mcp adapter using HTTPS, DNS pinning, public-address validation, no redirects, bounded time/body/concurrency, validated cache lifetimes, exact document client_id binding, and fail-closed stale behavior. Django OAuth Toolkit remains the grant/token core; its independent CIMD resolver is disabled so it cannot create a second policy path."
     },
     {
-      "id": "dcr-review-triggers",
-      "decision": "The DCR-only decision must be reviewed at the first of: 2026-11-12; public plugin submission; a supported-client matrix change; more than 100 registrations in one UTC day; or DCR abuse decisions exceeding 5 percent of registration attempts in any rolling 24-hour window. The result and compatibility evidence require a new ADR."
+      "id": "dcr-fallback-lifecycle",
+      "decision": "Anonymous DCR remains a compatibility fallback with mandatory web/native application_type, persistent abuse limits, credential-free registration/use telemetry, and no RFC 7592 management endpoint or registration access token. The repository-maintainer role owns it. Review occurs at least every 90 days and before MCP authorization-spec changes, required-client registration/callback changes, public plugin submission, or an OAuth security incident. Removal requires every supported primary/cross-agent client to pass current non-DCR acceptance, no supported matrix entry to require DCR, and 90 consecutive production days with zero successful DCR use; any use or compatibility regression resets the window."
     },
     {
       "id": "runtime-topology",
@@ -43,7 +43,7 @@
     },
     {
       "id": "immutable-release",
-      "decision": "The server runtime is published as a GHCR image pinned by digest. The deployment topology/config checkout is detached at the descriptor's full git_commit. The MCP descriptor and immutable ChatGPT-plus-Codex-plus-Claude-Code smoke bundle are GitHub Release assets. Downstream consumers resolve the descriptor, source commit, client compatibility matrix, and image by immutable identity, never by a mutable branch or image tag."
+      "decision": "The server runtime is published as a GHCR image pinned by digest. The deployment topology/config checkout is detached at the descriptor's full git_commit. The MCP descriptor and immutable ChatGPT-plus-Codex-plus-Claude-plus-Claude-Code smoke bundle are GitHub Release assets. Downstream consumers resolve the descriptor, source commit, client compatibility matrix, and image by immutable identity, never by a mutable branch or image tag."
     },
     {
       "id": "clean-cut-rollout",
@@ -55,7 +55,7 @@
     "Apply additive OAuth, audit, rate-limit, cleanup-index, and constraint migrations before routing traffic to the new MCP process.",
     "Drain and stop every old web/MCP writer before refresh-family migrations 0002 through 0004; this clean-cut release does not claim zero-downtime migration.",
     "Run code-exchange, refresh-family, revoke, quota, and cleanup concurrency suites against PostgreSQL 17 rather than SQLite.",
-    "Deploy the digest-pinned GHCR image to staging, execute ChatGPT, Codex, and Claude Code acceptance plus Inspector diagnostics, then promote the same digest to production.",
+    "Deploy the digest-pinned GHCR image to staging, execute ChatGPT, Codex, Claude/Claude Desktop, and Claude Code acceptance over CIMD plus separately evidenced DCR fallback, then run Inspector diagnostics and promote the same digest to production.",
     "Seal release/mcp-release.json only after immutable image, registry, smoke, audit, refresh, revoke, cleanup, and rollback evidence exists."
   ],
   "rollback_plan": [
@@ -66,6 +66,8 @@
   ],
   "consequences": [
     "Stage 1 is not releasable from repository artifacts alone; production PostgreSQL, real-client, GHCR, GitHub Release, cleanup-health, and rollback evidence are mandatory.",
+    "A stale or unreachable CIMD document makes that client temporarily unusable; the last good document remains stored for audit but is never silently authorized after expiry.",
+    "DCR remains operational until its role-owned 90-day removal evidence is complete; CIMD-first does not authorize early fallback removal.",
     "MCP server SemVer remains independent of the Agent Contract version; no mcp_contract_version is introduced.",
     "Standalone Skill work may begin only after a sealed MCP descriptor and immutable Stage 1 acceptance evidence exist."
   ]

@@ -35,6 +35,13 @@ normalize case, ports, paths, percent encoding, or trailing slashes.
   `--forwarded-allow-ips`; never use `*`.
 - OAuth/DCR abuse limits use PostgreSQL-backed counters and atomic increments.
   A local-memory cache is not an accepted production rate-limit store.
+- Client registration is CIMD-first. Outbound metadata retrieval is performed
+  only by `django-embedded-mcp`: lowercase ASCII HTTPS client IDs with a path and
+  no userinfo/query/fragment/dot segments, one-time DNS resolution, public-address
+  enforcement, IP-pinned TLS/SNI, no redirects, 3-second shared deadline, 8 KiB
+  body cap, and bounded concurrency. Validated `Cache-Control` and `Age` values are
+  clamped to a 5-minute/1-hour freshness window. Expired metadata is never authorized
+  when refresh fails. DCR remains the measured compatibility fallback.
 - Enable `sitehits-mcp-cleanup.timer`. Its service runs bounded OAuth metadata
   cleanup and the existing Agent Contract audit/idempotency cleanup daily.
 
@@ -72,7 +79,9 @@ in the same clean-cut release; do not advertise them as aliases.
    ordinary product routes remain on the Django web process on port 8000.
 6. Run native OAuth through discovery, initialize, `tools/list`,
    `get_account_capabilities`, refresh, and revoke with exact tested versions
-   of ChatGPT, Codex, and Claude Code. Run MCP Inspector separately as diagnostics.
+   of ChatGPT, Codex, Claude/Claude Desktop, and Claude Code. Record a real-client
+   CIMD result and a separately exercised DCR fallback result for every required
+   matrix entry. Run MCP Inspector separately as diagnostics.
    Claude Code must use its native user-scope HTTP registration and login flow:
 
    ```bash
@@ -109,19 +118,18 @@ in the same clean-cut release; do not advertise them as aliases.
   `sitehits-mcp-alert@.service`, which calls the configured external HTTPS
   `SITEHITS_MCP_ALERT_WEBHOOK_URL` without placing that URL in process argv.
 
-## DCR review trigger
+## DCR fallback review and removal
 
-Onur owns the DCR-only decision. Reopen it at the first of:
+The repository-maintainer role owns DCR fallback. Review it at least every 90
+days and before an MCP authorization-spec change, required-client registration
+or callback change, public plugin submission, or OAuth security incident.
 
-- 2026-11-12;
-- public plugin submission;
-- any supported-client matrix change;
-- more than 100 DCR registrations in one UTC day; or
-- abuse decisions above 5% of registration attempts in a rolling 24-hour
-  window.
-
-Record CIMD/DCR security, operations, and compatibility evidence in a new ADR
-before the public plugin gate.
+Do not remove DCR until every supported primary and cross-agent surface has
+current CIMD or pre-registration acceptance, no supported matrix record requires
+DCR, and production telemetry shows 90 consecutive days with zero successful
+DCR use. Any successful DCR use or compatibility regression resets the window.
+Update `integration/client-compatibility.yaml`, create a new ADR and server
+release, and preserve a rollback path for any removal.
 
 ## Seal the immutable release descriptor
 
@@ -131,11 +139,44 @@ smoke evidence object outside the source tree with these exact keys:
 ```json
 {
   "clients": {
-    "ChatGPT": "<exact-version>",
-    "Codex": "<exact-version>",
-    "Claude Code": "<exact-version>"
+    "ChatGPT": {
+      "tested_version": "<exact-version>",
+      "registration_method": "cimd",
+      "registration_status": "passed",
+      "fallback_registration_method": "dcr",
+      "fallback_status": "passed"
+    },
+    "Codex": {
+      "tested_version": "<exact-version>",
+      "registration_method": "cimd",
+      "registration_status": "passed",
+      "fallback_registration_method": "dcr",
+      "fallback_status": "passed"
+    },
+    "Claude/Claude Desktop": {
+      "tested_version": "<exact-version>",
+      "registration_method": "cimd",
+      "registration_status": "passed",
+      "fallback_registration_method": "dcr",
+      "fallback_status": "passed"
+    },
+    "Claude Code": {
+      "tested_version": "<exact-version>",
+      "registration_method": "cimd",
+      "registration_status": "passed",
+      "fallback_registration_method": "dcr",
+      "fallback_status": "passed"
+    }
   },
-  "diagnostic_clients": {"MCP Inspector": "<exact-version>"},
+  "diagnostic_clients": {
+    "MCP Inspector": {
+      "tested_version": "<exact-version>",
+      "registration_method": "cimd",
+      "registration_status": "diagnostic-passed",
+      "fallback_registration_method": "dcr",
+      "fallback_status": "diagnostic-passed"
+    }
+  },
   "flows": [
     "discovery",
     "oauth",
@@ -159,8 +200,9 @@ smoke evidence object outside the source tree with these exact keys:
 }
 ```
 
-The evidence bundle itself must contain request/response-safe proof of the three
-real-client flows, registry equality, audit, refresh/revoke, cleanup health,
+The evidence bundle itself must contain request/response-safe proof of the four
+required real-client flows over CIMD and DCR fallback, registry equality,
+audit, refresh/revoke, cleanup health,
 and rollback smoke without raw tokens, codes, verifiers, state, or secrets. The
 release generator computes `smoke.evidence_sha256` from the exact bytes supplied
 to `--smoke-evidence`; upload those unchanged bytes at `evidence_uri`.
@@ -205,9 +247,10 @@ normal sealing path.
 4. If the schema is not backward-compatible, do not downgrade code or reverse
    migrations. Keep traffic disabled as needed and roll forward a corrective
    image.
-5. After rollback, repeat discovery, exact-resource, ChatGPT, Codex, and Claude
-   Code OAuth, initialize, registry, bootstrap, refresh, revoke, audit, and
-   cleanup smoke.
+5. After rollback, repeat discovery, exact-resource, ChatGPT, Codex,
+   Claude/Claude Desktop, and Claude Code OAuth over the required registration
+   paths, initialize, registry, bootstrap, refresh, revoke, audit, and cleanup
+   smoke.
    Publish immutable rollback evidence and record the release/operator/time.
 
 Skill Distribution begins only after the sealed MCP descriptor, production

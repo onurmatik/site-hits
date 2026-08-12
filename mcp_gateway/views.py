@@ -24,6 +24,7 @@ from django_embedded_mcp.dcr import (
     DynamicClientRegistrationError,
     parse_public_client_registration,
 )
+from django_embedded_mcp.cimd import is_cimd_client_id
 from django_embedded_mcp.resource import ExactResourceError
 from oauth2_provider.models import AbstractApplication, get_application_model
 from oauth2_provider.views import AuthorizationView, RevokeTokenView, TokenView
@@ -39,6 +40,7 @@ from mcp_oauth.models import (
 )
 
 from .http import authorization_server_metadata, protected_resource_metadata
+from .cimd import CIMDResolutionError, resolve_cimd_application
 from .oauth import (
     _PKCE_S256_PATTERN,
     begin_refresh_audit_capture,
@@ -56,11 +58,13 @@ MAX_DCR_REDIRECT_URIS = 10
 RATE_WINDOW = timedelta(minutes=1)
 RATE_LIMITS = {
     "register": (30, 300),
+    "cimd": (20, 200),
     "authorize": (120, 1_200),
     "token": (120, 1_200),
     "revoke": (120, 1_200),
 }
 CLIENT_RATE_LIMITS = {
+    "cimd": 10,
     "authorize": 600,
     "token": 600,
     "revoke": 600,
@@ -309,7 +313,7 @@ def _consume_bucket(action, subject, *, limit, now):
         return True
 
 
-def _rate_limit_request(request, action, *, client=None):
+def _rate_limit_request(request, action, *, client=None, subject=None):
     per_source, global_limit = RATE_LIMITS[action]
     source = request.META.get("REMOTE_ADDR") or "unknown"
     now = timezone.now()
@@ -318,10 +322,11 @@ def _rate_limit_request(request, action, *, client=None):
         # A source that exhausted its own budget must not burn shared capacity
         # and deny service to every other public OAuth client.
         return False
-    if client is not None and action in CLIENT_RATE_LIMITS:
+    if (client is not None or subject is not None) and action in CLIENT_RATE_LIMITS:
+        client_subject = f"client:{client.pk}" if client is not None else f"subject:{subject}"
         client_allowed = _consume_bucket(
             action,
-            f"client:{client.pk}",
+            client_subject,
             limit=CLIENT_RATE_LIMITS[action],
             now=now,
         )
@@ -408,6 +413,16 @@ def _trusted_source_details(request) -> dict[str, str]:
             "untrusted_direct_peer",
         ),
         "source_digest": _rate_subject_digest("source", source),
+    }
+
+
+def _registration_details(application) -> dict[str, str]:
+    if application is None:
+        return {"registration_method": "", "application_type": ""}
+    metadata = application.metadata if isinstance(application.metadata, dict) else {}
+    return {
+        "registration_method": str(application.registration_source),
+        "application_type": str(metadata.get("application_type", "")),
     }
 
 
@@ -669,6 +684,7 @@ def _record_token_lifecycle_event(
         "refresh_family_decision": (
             refresh_decision.code.value if refresh_decision is not None else ""
         ),
+        **_registration_details(actual_client),
         **_trusted_source_details(request),
         "decision": outcome,
         "error": error,
@@ -690,10 +706,18 @@ def _client_profile(client):
     return (
         client is not None
         and client.is_usable(None)
+        and not (
+            client.registration_source == AbstractApplication.RegistrationSource.DCR
+            and is_cimd_client_id(client.client_id)
+        )
         and client.client_type == AbstractApplication.CLIENT_PUBLIC
         and client.authorization_grant_type
         == AbstractApplication.GRANT_AUTHORIZATION_CODE
-        and client.registration_source == AbstractApplication.RegistrationSource.DCR
+        and client.registration_source
+        in {
+            AbstractApplication.RegistrationSource.DCR,
+            AbstractApplication.RegistrationSource.CIMD,
+        }
         and not client.client_secret
     )
 
@@ -705,6 +729,78 @@ def _registered_client(client_id):
     except Application.DoesNotExist:
         return None
     return client if _client_profile(client) else None
+
+
+def _record_cimd_event(
+    request,
+    *,
+    outcome,
+    client_id,
+    application=None,
+    source="",
+    document_sha256="",
+    error="",
+):
+    details = {
+        "client_id": client_id[:255] if isinstance(client_id, str) else "",
+        "client_digest": _audit_digest(client_id),
+        "registration_method": "cimd",
+        "application_type": (
+            str(application.metadata.get("application_type", ""))
+            if application is not None
+            else ""
+        ),
+        "cache_decision": source,
+        "document_sha256": document_sha256,
+        **_trusted_source_details(request),
+        "decision": outcome,
+        "error": error,
+    }
+    _record_security_event(
+        event="cimd",
+        outcome=outcome,
+        request_id=_request_id(request),
+        application=application,
+        scopes=(application.allowed_scopes if application is not None else ()),
+        subject=client_id,
+        details=details,
+    )
+
+
+def _resolve_client(request, client_id):
+    """Resolve a registered client, fetching CIMD only through the shared adapter."""
+
+    client = _registered_client(client_id)
+    if client is not None or not is_cimd_client_id(client_id):
+        return client
+    if not _rate_limit_request(request, "cimd", subject=client_id):
+        _record_cimd_event(
+            request,
+            outcome="rate_limited",
+            client_id=client_id,
+            error="rate_limit_exceeded",
+        )
+        return None
+    try:
+        resolution = resolve_cimd_application(client_id)
+    except CIMDResolutionError as exc:
+        _record_cimd_event(
+            request,
+            outcome="rejected",
+            client_id=client_id,
+            error=exc.code,
+        )
+        return None
+    application = resolution.application
+    _record_cimd_event(
+        request,
+        outcome=resolution.source,
+        client_id=client_id,
+        application=application,
+        source=resolution.source,
+        document_sha256=resolution.document_sha256,
+    )
+    return application if _client_profile(application) else None
 
 
 def agent_manifest(request):
@@ -763,6 +859,7 @@ class SiteHitsDynamicClientRegistrationView(View):
         request_id = _request_id(request)
         source = request.META.get("REMOTE_ADDR", "unknown")
         registration_digest = _audit_digest(request.body)
+        application_type = ""
 
         def audit(
             outcome,
@@ -776,6 +873,8 @@ class SiteHitsDynamicClientRegistrationView(View):
             details = {
                 "client_id": client_id,
                 "client_digest": _audit_digest(client_id or request.body),
+                "registration_method": "dcr",
+                "application_type": application_type,
                 "registration_digest": registration_digest,
                 "redirect_uris": _redirect_uri_summary(redirect_uris),
                 **_trusted_source_details(request),
@@ -837,6 +936,7 @@ class SiteHitsDynamicClientRegistrationView(View):
                 ),
             )
         redirect_uris = list(registration.redirect_uris)
+        application_type = registration.application_type
         scopes = list(registration.scopes)
         Application = get_application_model()
         application = Application(
@@ -874,6 +974,7 @@ class SiteHitsDynamicClientRegistrationView(View):
                 "client_id_issued_at": int(application.created.timestamp()),
                 "client_name": application.name,
                 "redirect_uris": redirect_uris,
+                "application_type": registration.application_type,
                 "grant_types": ["authorization_code", "refresh_token"],
                 "response_types": ["code"],
                 "token_endpoint_auth_method": "none",
@@ -912,6 +1013,7 @@ def _record_authorization_event(
             if isinstance(redirect_uri, str) and redirect_uri
             else ""
         ),
+        **_registration_details(client),
         **_trusted_source_details(request),
         "decision": outcome,
         "error": error,
@@ -1001,6 +1103,8 @@ class SiteHitsAuthorizationView(AuthorizationView):
                 "Authorization rate limit exceeded.",
                 status=429,
             )
+        if request.method == "GET" and rate_client is None:
+            _resolve_client(request, data.get("client_id", ""))
         if request.method == "GET":
             try:
                 self._profile = self._validate_request_profile(request.GET)
@@ -1245,6 +1349,8 @@ class SiteHitsTokenView(TokenView):
                 status=429,
                 token_response=True,
             )
+        if rate_client is None:
+            _resolve_client(request, request.POST.get("client_id", ""))
         response = super().dispatch(request, *args, **kwargs)
         return _harden_oauth_response(response, token_response=True)
 
@@ -1461,6 +1567,7 @@ def _record_revocation_event(
         "replay_detected": False,
         "family_revoked": family_revoked,
         "revoke_decision": decision,
+        **_registration_details(actual_client),
         **_trusted_source_details(request),
         "decision": outcome,
         "error": error,
@@ -1505,6 +1612,8 @@ class SiteHitsRevokeTokenView(RevokeTokenView):
                 status=429,
                 token_response=True,
             )
+        if rate_client is None:
+            _resolve_client(request, request.POST.get("client_id", ""))
         response = super().dispatch(request, *args, **kwargs)
         return _harden_oauth_response(response, token_response=True)
 

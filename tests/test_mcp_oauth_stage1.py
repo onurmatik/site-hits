@@ -71,6 +71,7 @@ def _pkce():
 def _register(client, **overrides):
     payload = {
         "redirect_uris": [REDIRECT_URI],
+        "application_type": "native",
         "client_name": "Stage 1 test client",
         "grant_types": ["authorization_code", "refresh_token"],
         "response_types": ["code"],
@@ -78,6 +79,12 @@ def _register(client, **overrides):
         "scope": "read write",
     }
     payload.update(overrides)
+    if "application_type" not in overrides:
+        payload["application_type"] = (
+            "native"
+            if all(uri.startswith("http://") for uri in payload["redirect_uris"])
+            else "web"
+        )
     return client.post(
         "/oauth/register/",
         data=json.dumps(payload),

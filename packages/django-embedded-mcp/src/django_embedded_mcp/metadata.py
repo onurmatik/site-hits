@@ -39,8 +39,10 @@ def build_authorization_server_metadata(
     issuer: str,
     scopes_supported: Iterable[str] = (),
     service_documentation: str | None = None,
+    client_id_metadata_document_supported: bool = False,
+    dynamic_client_registration_supported: bool = True,
 ) -> dict[str, object]:
-    """Build the exact DCR-only public-client authorization-server profile."""
+    """Build the exact public-client authorization-server profile."""
 
     issuer = _validated_issuer(issuer)
     scopes = validated_scope_catalog(scopes_supported)
@@ -48,7 +50,6 @@ def build_authorization_server_metadata(
         "issuer": issuer,
         "authorization_endpoint": f"{issuer}/oauth/authorize/",
         "token_endpoint": f"{issuer}/oauth/token/",
-        "registration_endpoint": f"{issuer}/oauth/register/",
         "revocation_endpoint": f"{issuer}/oauth/revoke/",
         "response_types_supported": ["code"],
         "grant_types_supported": ["authorization_code", "refresh_token"],
@@ -57,6 +58,10 @@ def build_authorization_server_metadata(
         "code_challenge_methods_supported": ["S256"],
         "authorization_response_iss_parameter_supported": True,
     }
+    if client_id_metadata_document_supported:
+        payload["client_id_metadata_document_supported"] = True
+    if dynamic_client_registration_supported:
+        payload["registration_endpoint"] = f"{issuer}/oauth/register/"
     if scopes:
         payload["scopes_supported"] = list(scopes)
     if service_documentation is not None:
