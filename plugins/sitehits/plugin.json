@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "sitehits",
+  "version": "0.2.0",
+  "description": "Privacy-conscious SiteHits analytics, measurement, and tracking tools.",
+  "author": {
+    "name": "SiteHits"
+  },
+  "homepage": "https://sitehits.io",
+  "keywords": ["analytics", "privacy", "measurement", "mcp"]
+}

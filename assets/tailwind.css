@@ -3,6 +3,7 @@
 
 @source "../templates";
 @source "../dashboard";
+@source "../mcp_gateway";
 
 @theme {
   --color-paper: #f7f7f5;

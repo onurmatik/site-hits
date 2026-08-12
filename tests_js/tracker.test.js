@@ -32,7 +32,7 @@ describe("cookieless tracker", () => {
     expect(request.session_id).toBeTruthy();
     expect(request.automation).toEqual({ webdriver: false });
     expect(document.cookie).toBe("");
-    expect(localStorage.length).toBe(0);
+    expect(source).not.toContain("localStorage");
   });
 
   test("tracks custom events and SPA navigation", async () => {

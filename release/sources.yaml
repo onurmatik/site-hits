@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": 1,
+  "repository": "https://github.com/onurmatik/site-hits.git",
+  "descriptors": {
+    "agent_contract": {
+      "authoritative_store": "git_annotated_tag_payload",
+      "immutable_ref_pattern": "agent-contract-v{agent_contract_version}",
+      "descriptor_path": "release/contract-release.json",
+      "descriptor_role": "local_materialization_of_annotated_tag_payload",
+      "digest_algorithm": "sha256",
+      "consumer_resolution": "Read the annotated tag payload as the descriptor, verify that its git_commit equals the tag target commit, verify Contract and vector digests from that target, then optionally materialize the payload at descriptor_path. Resolve downstream inputs by digest rather than a branch path."
+    },
+    "standalone_skill": {
+      "authoritative_store": "github_release_asset",
+      "immutable_ref_pattern": "sitehits-skill-v{skill_version}",
+      "descriptor_path": "release/skill-release.json",
+      "digest_algorithm": "sha256",
+      "consumer_resolution": "Resolve the skill release descriptor pinned to an Agent Contract version and digest."
+    },
+    "openai_plugin": {
+      "authoritative_store": "github_release_asset",
+      "immutable_ref_pattern": "sitehits-plugin-v{plugin_version}",
+      "descriptor_path": "release/plugin-release.json",
+      "digest_algorithm": "sha256",
+      "consumer_resolution": "Resolve the plugin release descriptor pinned to immutable Contract and skill digests."
+    }
+  },
+  "promotion_environments": [
+    {"name": "development", "promotes_to": "staging", "requires": ["stage_specific_conformance"]},
+    {"name": "staging", "promotes_to": "production", "requires": ["immutable_descriptor", "digest_verification", "stage_specific_conformance"]},
+    {"name": "production", "promotes_to": null, "requires": ["immutable_descriptor", "digest_verification", "release_approval"]}
+  ]
+}

@@ -1,6 +1,6 @@
 [project]
 name = "sitehits"
-version = "0.1.0"
+version = "0.2.0"
 description = "Privacy-conscious multi-site web analytics for internal use"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -9,7 +9,6 @@ dependencies = [
   "django-ninja>=1.4,<2",
   "dj-database-url>=2.3,<4",
   "geoip2>=5,<6",
-  "gunicorn>=23,<24",
   "psycopg[binary]>=3.2,<4",
   "user-agents>=2.2,<3",
   "whitenoise>=6.9,<7",
@@ -19,6 +18,8 @@ dependencies = [
   "django-ses>=4.7,<5",
   "PyJWT>=2.10,<3",
   "openai>=2.46,<3",
+  "jsonschema>=4.26,<5",
+  "mcp<2",
 ]
 
 [dependency-groups]

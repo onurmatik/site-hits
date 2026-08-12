@@ -1,5 +1,7 @@
-from django.db import models
+import uuid
+
 from django.core.exceptions import ValidationError
+from django.db import models
 
 from websites.models import TrackedSite
 
@@ -234,3 +236,63 @@ class BotEvent(models.Model):
 
     def __str__(self):
         return f"{self.site}: {self.crawler} requested {self.path}"
+
+
+class AgentIdempotencyRecord(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        COMPLETED = "completed", "Completed"
+
+    idempotency_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    authenticated_actor_id = models.CharField(max_length=255)
+    authenticated_client_id = models.CharField(max_length=512)
+    tool_name = models.CharField(max_length=120)
+    key_digest = models.CharField(max_length=64)
+    input_hash = models.CharField(max_length=64)
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    result = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "authenticated_actor_id",
+                    "authenticated_client_id",
+                    "tool_name",
+                    "key_digest",
+                ],
+                name="agent_idempotency_key_uniq",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.tool_name}: {self.idempotency_id}"
+
+
+class AgentAuditEvent(models.Model):
+    request_id = models.CharField(max_length=64, db_index=True)
+    authenticated_actor_id = models.CharField(max_length=255)
+    authenticated_client_id = models.CharField(max_length=512)
+    tenant_id = models.CharField(max_length=255, blank=True)
+    tool_name = models.CharField(max_length=120, db_index=True)
+    target_resource_type = models.CharField(max_length=80)
+    target_resource_id = models.CharField(max_length=255, blank=True)
+    authorization = models.JSONField(default=dict)
+    input_hash = models.CharField(max_length=64)
+    outcome_code = models.CharField(max_length=80)
+    idempotency_id = models.CharField(max_length=64, blank=True)
+    operation_id = models.CharField(max_length=64, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return f"{self.tool_name}: {self.outcome_code} ({self.request_id})"

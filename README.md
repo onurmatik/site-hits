@@ -2,6 +2,8 @@
 
 SiteHits is a small, cookieless, multi-site analytics service for internal use. It consists of a Django dashboard, a Django Ninja collection/reporting API, and one browser script that can be installed on any site.
 
+It also exposes an authenticated Python MCP server at `/mcp`. The server focuses on structured analytics reads and site/measurement CRUD so a calling agent can do its own evaluation. A separate, optional Django-template UI resource presents tracking setup without making the data tools depend on UI.
+
 ## What it collects
 
 - Page path, referrer hostname/path, UTM campaign fields, language, timezone, viewport and screen dimensions.
@@ -123,6 +125,55 @@ Common query parameters are `site=all|<slug>`, `period=today|last24h|last7d|last
 
 Each selected-site dashboard also provides an **Embed widget** action. It generates a public iframe showing aggregate distinct visitors, minute activity, and the top three countries for the last 60 minutes. The widget URL uses the site's public tracking key, refreshes every minute, and intentionally excludes paths, referrers, sessions, and custom-event details.
 
+## MCP and agent plugin
+
+SiteHits is an OAuth-protected Streamable HTTP MCP resource at `https://sitehits.io/mcp`.
+Clients discover the authorization server from the `401` challenge and public protected-resource
+metadata. Authentication uses Authorization Code with PKCE `S256`; dynamic registration accepts
+public clients and issued access tokens are bound to the canonical MCP resource.
+
+This release intentionally implements the checklist's public-client DCR path on the maintained
+`mcp` 1.x SDK line. The 2026-07-28 MCP specification and Python SDK 2.x prefer Client ID Metadata
+Documents (CIMD); SiteHits does not advertise CIMD until remote metadata validation and its SSRF
+controls are implemented. Treat the SDK 2.x/CIMD move as a separate compatibility release, not an
+automatic dependency bump.
+
+For Codex, install the plugin and start its native OAuth flow:
+
+```bash
+codex mcp login --scopes read,write sitehits
+```
+
+The consent page uses the existing SiteHits sign-in. An authenticated MCP client has the same
+resource ownership boundary as its linked Django user: superusers can access every site and regular
+users only their own. OAuth scopes are an additional coarse permission layer:
+
+- `read` for sites, reports, measurement configuration, and redacted tracking setup;
+- `write` for site, measurement-event, and activation mutations.
+
+Production defaults to OAuth-only. `create_mcp_token` and `SITEHITS_MCP_ALLOW_LEGACY_TOKENS=true`
+exist solely as an opt-in migration bridge for previously issued static tokens; distributed plugin
+configuration does not use them.
+
+The Streamable HTTP endpoint is `https://sitehits.io/mcp`. Its tools cover:
+
+- site list/get/create/update/delete;
+- overview, site comparison, time series, breakdown, bot, and product-metric reads for any supported period;
+- product-event catalog and activation CRUD;
+- browser snippet, bot middleware instruction, and product-event integration instruction retrieval.
+
+Private bot and product keys are never returned by MCP tools. Tracking setup returns environment
+variable names and redacted placeholders; real values stay in SiteHits or an authorized secret
+manager. `get_tracking_setup` is a UI-less structured tool.
+`render_tracking_setup` links the same result to an optional
+`text/html;profile=mcp-app` resource rendered from a Django template and the compiled Tailwind
+stylesheet.
+
+The distributable bundle is in `plugins/sitehits/`. It includes Codex plugin metadata, Agent Plugins
+Specification 1.0.0 `plugin.json` and `mcp.json`, a period-agnostic `sitehits-analytics` skill, and
+installation/release guidance. The public `/agent-manifest.json` and read-only
+`get_integration_status` tool expose independent server, Agent Contract, skill, and plugin versions.
+
 ## Production configuration
 
 Copy `.env.example` and supply real secrets. Important details:
@@ -132,6 +183,9 @@ Copy `.env.example` and supply real secrets. Important details:
 - Provision a MaxMind GeoLite2 City database and set `SITEHITS_GEOIP_DB_PATH`. The checked-in deploy task installs and periodically runs `geoipupdate`; `manage.py check --deploy` fails if the configured database is missing, invalid, or the wrong MMDB type. Existing events are not location-backfilled because raw IP addresses are never stored.
 - Run the collector over HTTPS. Configure the reverse proxy to limit request rates and cap `/api/events` bodies.
 - Schedule `python manage.py purge_old_events --days 365` daily.
+- Set `SITEHITS_MCP_TOKEN_SECRET` to an independent long-lived secret before enabling MCP OAuth. Changing it invalidates every authorization code, access token, refresh token, and legacy token digest.
+- Set `SITEHITS_MCP_ISSUER_URL` and `SITEHITS_MCP_RESOURCE_URL` when the externally visible MCP origin or path differs from `SITEHITS_BASE_URL` and `/mcp`.
+- Keep `SITEHITS_MCP_ALLOW_LEGACY_TOKENS=false` in production unless a time-bounded static-token migration is actively underway.
 
 ### Passwordless and Google authentication
 
@@ -154,7 +208,7 @@ overrides from `.env-prod` into the preserved runtime environment.
 
 Both methods preserve the submitted website and resume at `/onboarding/`. New tracked sites are owned by the authenticated user; regular users can only open and query their own sites.
 
-The included Dockerfile builds Tailwind/Chart.js assets, collects static files, applies migrations, and starts Gunicorn. Health checks should target `/health/`.
+The included Dockerfile builds Tailwind/Chart.js assets, collects static files, applies migrations, and starts Uvicorn with the combined Django and MCP ASGI application. Health checks should target `/health/`.
 
 ## Verification
 

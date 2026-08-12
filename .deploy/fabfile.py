@@ -8,7 +8,6 @@ from pathlib import Path
 from fabric import Connection, task
 from invoke import Collection
 
-
 DEPLOY_DIR = Path(__file__).resolve().parent
 
 
@@ -44,6 +43,17 @@ RUNTIME_ENV_KEYS = (
     "SITEHITS_GOAL_PLANNING_MODEL",
     "SITEHITS_GOAL_PLANNING_TIMEOUT_SECONDS",
     "SITEHITS_GOAL_PLANNING_RATE_LIMIT",
+    "SITEHITS_MCP_TOKEN_SECRET",
+    "SITEHITS_MCP_ISSUER_URL",
+    "SITEHITS_MCP_RESOURCE_URL",
+    "SITEHITS_MCP_DOCUMENTATION_URL",
+    "SITEHITS_MCP_SKILL_UPDATE_URL",
+    "SITEHITS_MCP_ALLOW_LEGACY_TOKENS",
+    "SITEHITS_MCP_CORS_ORIGINS",
+    "SITEHITS_MCP_ACCESS_TOKEN_TTL_SECONDS",
+    "SITEHITS_MCP_REFRESH_TOKEN_TTL_SECONDS",
+    "SITEHITS_MCP_AUTHORIZATION_CODE_TTL_SECONDS",
+    "SITEHITS_MCP_AUTHORIZATION_REQUEST_TTL_SECONDS",
     "GOOGLE_OAUTH_CLIENT_ID",
     "GOOGLE_OAUTH_CLIENT_SECRET",
     "DJANGO_EMAIL_BACKEND",
@@ -82,6 +92,8 @@ umask 077
   printf 'CSRF_TRUSTED_ORIGINS=https://{DOMAIN}\\n'
   printf 'SITEHITS_BASE_URL=https://{DOMAIN}\\n'
   printf 'SITEHITS_HASH_SECRET=%s\\n' "$(openssl rand -hex 48)"
+  printf 'SITEHITS_MCP_TOKEN_SECRET=%s\\n' "$(openssl rand -hex 48)"
+  printf 'SITEHITS_MCP_ALLOW_LEGACY_TOKENS=false\\n'
   printf 'SITEHITS_GEOIP_DB_PATH={GEOIP_DB_PATH}\\n'
   printf 'SITEHITS_TIME_ZONE=Europe/Istanbul\\n'
   printf 'SITEHITS_TRUST_PROXY_HEADERS=true\\n'
@@ -92,6 +104,12 @@ umask 077
         return
 
     script = f"""
+if ! grep -q '^SITEHITS_MCP_TOKEN_SECRET=' .env; then
+  printf 'SITEHITS_MCP_TOKEN_SECRET=%s\\n' "$(openssl rand -hex 48)" >> .env
+fi
+if ! grep -q '^SITEHITS_MCP_ALLOW_LEGACY_TOKENS=' .env; then
+  printf 'SITEHITS_MCP_ALLOW_LEGACY_TOKENS=false\\n' >> .env
+fi
 if grep -q '^SITEHITS_GEOIP_DB_PATH=' .env; then
   sed -i 's|^SITEHITS_GEOIP_DB_PATH=.*$|SITEHITS_GEOIP_DB_PATH={GEOIP_DB_PATH}|' .env
 else

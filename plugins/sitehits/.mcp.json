@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "sitehits": {
+      "type": "http",
+      "url": "https://sitehits.io/mcp",
+      "oauth_resource": "https://sitehits.io/mcp"
+    }
+  }
+}

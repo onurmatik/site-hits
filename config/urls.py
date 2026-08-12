@@ -3,8 +3,8 @@ from django.contrib.auth import views as auth_views
 from django.urls import include, path
 
 from analytics.api import api
-from dashboard.auth import SiteHitsSesameLoginView, google_start, signup
 from analytics.views import tracker_script
+from dashboard.auth import SiteHitsSesameLoginView, google_start, signup
 from dashboard.views import (
     health,
     home,
@@ -13,10 +13,13 @@ from dashboard.views import (
     site_widget,
     start_onboarding,
 )
-
+from mcp_gateway.views import agent_manifest, mcp_documentation, oauth_consent
 
 urlpatterns = [
     path("", home, name="home"),
+    path("agent-manifest.json", agent_manifest, name="agent-manifest"),
+    path("mcp-docs/", mcp_documentation, name="mcp-docs"),
+    path("oauth/consent/", oauth_consent, name="mcp-oauth-consent"),
     path("start/", start_onboarding, name="start-onboarding"),
     path("onboarding/", onboarding, name="onboarding"),
     path(

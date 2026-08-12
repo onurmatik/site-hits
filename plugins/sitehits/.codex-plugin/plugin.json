@@ -1,0 +1,24 @@
+{
+  "name": "sitehits",
+  "version": "0.2.0",
+  "description": "Privacy-conscious SiteHits analytics, measurement, and tracking tools.",
+  "author": {
+    "name": "SiteHits",
+    "url": "https://sitehits.io"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "SiteHits",
+    "shortDescription": "Inspect and manage privacy-conscious analytics.",
+    "longDescription": "Use SiteHits analytics reports, site and measurement CRUD, and browser, bot, or product tracking setup through an authenticated MCP server.",
+    "developerName": "SiteHits",
+    "category": "Data & Analytics",
+    "capabilities": ["MCP server", "Skills"],
+    "defaultPrompt": [
+      "Inspect my SiteHits analytics for the period I specify.",
+      "Show my tracking setup without exposing private credentials.",
+      "Update a SiteHits measurement event after reading its current configuration."
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}

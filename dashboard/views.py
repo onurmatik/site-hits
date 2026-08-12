@@ -1,8 +1,8 @@
 import hashlib
-from html import escape
 import json
 import secrets
 import time
+from html import escape
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
@@ -20,8 +20,8 @@ from django.utils.text import slugify
 from django.views.decorators.cache import cache_page
 from django.views.decorators.clickjacking import xframe_options_exempt
 
-from analytics.reporting import last_hour_widget
 from analytics.models import ActivationDefinition, ProductEventDefinition
+from analytics.reporting import last_hour_widget
 from websites.models import TrackedSite
 
 from .forms import (
@@ -37,7 +37,11 @@ from .goal_planning import (
     ReconciledGoalPlan,
 )
 from .product_tracking import product_tracking_agent_instruction, server_event_settings
-
+from .tracking_setup import (
+    bot_tracking_agent_instruction,
+    bot_tracking_settings,
+    tracking_snippet,
+)
 
 ONBOARDING_SESSION_KEY = "sitehits_onboarding_website"
 NEW_SITE_FORM_SESSION_KEY = "sitehits_new_site_form"
@@ -94,41 +98,6 @@ def _unique_site_slug(name):
         slug = f"{base[: 79 - len(str(suffix))]}-{suffix}"
         suffix += 1
     return slug
-
-
-def _tracking_snippet(site):
-    base_url = settings.SITEHITS_BASE_URL
-    return (
-        f'<script defer src="{base_url}/js/script.js" '
-        f'data-site-key="{site.public_key}" '
-        f'data-api-url="{base_url}/api/events"></script>'
-    )
-
-
-def _bot_tracking_settings(site):
-    return (
-        f"SITEHITS_BOT_ENDPOINT={settings.SITEHITS_BASE_URL}/api/bot-events\n"
-        f"SITEHITS_BOT_KEY={site.bot_key}"
-    )
-
-
-def _bot_tracking_agent_instruction(site):
-    endpoint = f"{settings.SITEHITS_BASE_URL}/api/bot-events"
-    return (
-        f"Add server-side SiteHits bot tracking to {site.name}'s backend middleware. "
-        "Keep the existing browser tracker unchanged. For each document or crawler-facing "
-        "request, send a best-effort POST after the response is known (or schedule it with "
-        "waitUntil when the runtime provides it); never delay the page response. Exclude APIs, "
-        "framework internals, and obvious static assets, but keep robots.txt, llms.txt, "
-        "llms-full.txt, sitemap XML files, and Markdown content trackable. POST to "
-        f"{endpoint} with Authorization: Bearer {site.bot_key} and Content-Type: "
-        "application/json. The JSON body must contain url and user_agent, and may contain "
-        "status_code and an ISO-8601 timestamp. Keep the bot key server-side and do not expose "
-        "it in browser code. Treat HTTP 202 with accepted=false as a healthy unrecognized "
-        "user-agent response. Log network failures and non-2xx responses with only the HTTP "
-        "status, request path, and returned error message; never log the bot key, full URL, or "
-        "user-agent. Collector failures must remain best-effort and never break requests."
-    )
 
 
 def _site_for_details(user, details):
@@ -242,9 +211,9 @@ def onboarding_install(request, site_slug):
         "onboarding/install.html",
         {
             "site": site,
-            "tracking_snippet": _tracking_snippet(site),
-            "bot_tracking_settings": _bot_tracking_settings(site),
-            "bot_tracking_agent_instruction": _bot_tracking_agent_instruction(site),
+            "tracking_snippet": tracking_snippet(site),
+            "bot_tracking_settings": bot_tracking_settings(site),
+            "bot_tracking_agent_instruction": bot_tracking_agent_instruction(site),
             "product_metrics_settings_url": reverse(
                 "product-metrics-settings",
                 args=[site.slug],

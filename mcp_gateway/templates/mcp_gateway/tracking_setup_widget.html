@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{{ stylesheet_url }}">
+    <title>SiteHits tracking setup</title>
+  </head>
+  <body class="bg-slate-950 text-slate-100 antialiased">
+    <main class="mx-auto max-w-3xl space-y-4 p-4">
+      <header class="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-xl">
+        <p class="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-400">SiteHits</p>
+        <h1 id="title" class="mt-2 text-xl font-semibold">Tracking setup</h1>
+        <p id="credential-note" class="mt-2 text-sm text-slate-400">
+          Waiting for tracking configuration…
+        </p>
+      </header>
+      <section id="sections" class="space-y-4" aria-live="polite"></section>
+    </main>
+    <script>
+      (() => {
+        const sections = document.getElementById("sections");
+        const title = document.getElementById("title");
+        const credentialNote = document.getElementById("credential-note");
+
+        function codeBlock(label, value) {
+          const wrapper = document.createElement("div");
+          wrapper.className = "space-y-2";
+          const heading = document.createElement("h3");
+          heading.className = "text-sm font-medium text-slate-300";
+          heading.textContent = label;
+          const pre = document.createElement("pre");
+          pre.className = "overflow-x-auto whitespace-pre-wrap rounded-xl bg-slate-950 p-4 text-xs leading-5 text-emerald-200";
+          pre.textContent = value || "Not configured";
+          wrapper.append(heading, pre);
+          return wrapper;
+        }
+
+        function panel(label, rows) {
+          const article = document.createElement("article");
+          article.className = "space-y-4 rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-xl";
+          const heading = document.createElement("h2");
+          heading.className = "text-base font-semibold";
+          heading.textContent = label;
+          article.appendChild(heading);
+          rows.forEach(([rowLabel, value]) => article.appendChild(codeBlock(rowLabel, value)));
+          return article;
+        }
+
+        function render(data) {
+          if (!data || typeof data !== "object") return;
+          sections.replaceChildren();
+          title.textContent = `${data.site_name || data.site_slug || "Site"} tracking setup`;
+          credentialNote.textContent =
+            "Private keys are never returned by SiteHits tools. Configure them in the SiteHits UI or an authorized secret manager.";
+          if (data.browser) {
+            sections.appendChild(panel("Browser tracking", [["HTML snippet", data.browser.snippet]]));
+          }
+          if (data.bot) {
+            sections.appendChild(panel("Bot and agent tracking", [
+              ["Server environment", data.bot.environment],
+              ["Implementation guidance", data.bot.setup_guidance],
+            ]));
+          }
+          if (data.product) {
+            sections.appendChild(panel("Product event tracking", [
+              ["Server environment", data.product.environment],
+              ["Implementation guidance", data.product.setup_guidance],
+            ]));
+          }
+        }
+
+        const initial = window.openai && window.openai.toolOutput;
+        if (initial) render(initial);
+        window.addEventListener("message", (event) => {
+          const message = event.data;
+          if (!message || message.jsonrpc !== "2.0") return;
+          if (message.method === "ui/notifications/tool-result") {
+            render(message.params && message.params.structuredContent);
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>

@@ -2,5 +2,8 @@
 set -eu
 
 python manage.py migrate --noinput
-exec gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers ${WEB_CONCURRENCY:-2} --access-logfile -
-
+exec uvicorn config.asgi:application \
+  --host 0.0.0.0 \
+  --port "${PORT:-8000}" \
+  --workers "${WEB_CONCURRENCY:-2}" \
+  --proxy-headers

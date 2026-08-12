@@ -1,6 +1,13 @@
 from django.contrib import admin
 
-from .models import ActivationDefinition, AnalyticsEvent, BotEvent, ProductEventDefinition
+from .models import (
+    ActivationDefinition,
+    AgentAuditEvent,
+    AgentIdempotencyRecord,
+    AnalyticsEvent,
+    BotEvent,
+    ProductEventDefinition,
+)
 
 
 @admin.register(AnalyticsEvent)
@@ -64,6 +71,57 @@ class BotEventAdmin(admin.ModelAdmin):
     search_fields = ("path", "provider", "crawler")
     date_hierarchy = "occurred_at"
     readonly_fields = [field.name for field in BotEvent._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(AgentAuditEvent)
+class AgentAuditEventAdmin(admin.ModelAdmin):
+    list_display = (
+        "created_at",
+        "tool_name",
+        "outcome_code",
+        "authenticated_actor_id",
+        "authenticated_client_id",
+        "request_id",
+    )
+    list_filter = ("tool_name", "outcome_code")
+    search_fields = (
+        "request_id",
+        "authenticated_actor_id",
+        "authenticated_client_id",
+        "target_resource_id",
+    )
+    readonly_fields = tuple(field.name for field in AgentAuditEvent._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(AgentIdempotencyRecord)
+class AgentIdempotencyRecordAdmin(admin.ModelAdmin):
+    list_display = (
+        "created_at",
+        "tool_name",
+        "status",
+        "authenticated_actor_id",
+        "authenticated_client_id",
+        "idempotency_id",
+    )
+    list_filter = ("tool_name", "status")
+    search_fields = (
+        "idempotency_id",
+        "authenticated_actor_id",
+        "authenticated_client_id",
+    )
+    readonly_fields = tuple(field.name for field in AgentIdempotencyRecord._meta.fields)
 
     def has_add_permission(self, request):
         return False

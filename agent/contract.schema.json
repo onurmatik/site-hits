@@ -1,0 +1,464 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sitehits.io/schemas/agent-contract-1.json",
+  "title": "SiteHits Agent Contract schema",
+  "type": "object",
+  "required": [
+    "$schema",
+    "contract_schema_version",
+    "agent_contract_version",
+    "product",
+    "identity",
+    "scopes",
+    "capabilities",
+    "limits",
+    "resources",
+    "bootstrap",
+    "server_instructions",
+    "authorization",
+    "error_envelope",
+    "error_codes",
+    "data_classifications",
+    "audit_profiles",
+    "retention",
+    "mapping",
+    "compatibility",
+    "tools",
+    "$defs"
+  ],
+  "properties": {
+    "$schema": {"const": "./contract.schema.json"},
+    "contract_schema_version": {"const": "1"},
+    "agent_contract_version": {"$ref": "#/$defs/semver"},
+    "product": {"$ref": "#/$defs/product"},
+    "identity": {"$ref": "#/$defs/identity"},
+    "scopes": {
+      "type": "object",
+      "minProperties": 1,
+      "patternProperties": {
+        "^[a-z][a-z0-9:_-]*$": {"$ref": "#/$defs/scope"}
+      },
+      "additionalProperties": false
+    },
+    "capabilities": {
+      "type": "object",
+      "minProperties": 1,
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {"$ref": "#/$defs/capability"}
+      },
+      "additionalProperties": false
+    },
+    "limits": {
+      "type": "object",
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {"$ref": "#/$defs/limit"}
+      },
+      "additionalProperties": false
+    },
+    "resources": {
+      "type": "object",
+      "minProperties": 1,
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {"$ref": "#/$defs/resource"}
+      },
+      "additionalProperties": false
+    },
+    "bootstrap": {
+      "type": "object",
+      "required": ["tool"],
+      "properties": {"tool": {"type": "string"}},
+      "additionalProperties": false
+    },
+    "server_instructions": {
+      "type": "object",
+      "required": ["summary", "rules"],
+      "properties": {
+        "summary": {"type": "string", "minLength": 1},
+        "rules": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/server_rule"}
+        }
+      },
+      "additionalProperties": false
+    },
+    "authorization": {"$ref": "#/$defs/authorization"},
+    "error_envelope": {"$ref": "#/$defs/json_schema"},
+    "error_codes": {
+      "type": "object",
+      "minProperties": 1,
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {"$ref": "#/$defs/error_code"}
+      },
+      "additionalProperties": false
+    },
+    "data_classifications": {
+      "type": "object",
+      "minProperties": 1,
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {"$ref": "#/$defs/data_classification"}
+      },
+      "additionalProperties": false
+    },
+    "audit_profiles": {
+      "type": "object",
+      "minProperties": 1,
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {"$ref": "#/$defs/audit_profile"}
+      },
+      "additionalProperties": false
+    },
+    "retention": {
+      "type": "object",
+      "required": ["audit_days", "idempotency_records"],
+      "properties": {
+        "audit_days": {"type": "integer", "minimum": 1},
+        "idempotency_records": {
+          "type": "object",
+          "required": ["create_site_days", "expiry_behavior"],
+          "properties": {
+            "create_site_days": {"type": "integer", "minimum": 1},
+            "expiry_behavior": {"type": "string", "minLength": 1}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "mapping": {"$ref": "#/$defs/mapping"},
+    "compatibility": {"$ref": "#/$defs/compatibility"},
+    "tools": {
+      "type": "object",
+      "minProperties": 1,
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {"$ref": "#/$defs/tool"}
+      },
+      "additionalProperties": false
+    },
+    "$defs": {
+      "type": "object",
+      "minProperties": 1,
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {"$ref": "#/$defs/json_schema"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "string_list": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "product": {
+      "type": "object",
+      "required": ["name", "slug", "supported_goals", "out_of_scope"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "slug": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+        "supported_goals": {"$ref": "#/$defs/string_list"},
+        "out_of_scope": {"$ref": "#/$defs/string_list"}
+      },
+      "additionalProperties": false
+    },
+    "identity": {
+      "type": "object",
+      "required": [
+        "authenticated_actor_id",
+        "authenticated_client_id",
+        "tenant_id",
+        "global_access_capability",
+        "system_owned_resource_rule"
+      ],
+      "properties": {
+        "authenticated_actor_id": {"type": "string", "minLength": 1},
+        "authenticated_client_id": {"type": "string", "minLength": 1},
+        "tenant_id": {"type": "null"},
+        "global_access_capability": {"type": "string", "minLength": 1},
+        "system_owned_resource_rule": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "scope": {
+      "type": "object",
+      "required": ["description", "grants"],
+      "properties": {
+        "description": {"type": "string", "minLength": 1},
+        "grants": {"enum": ["read", "write"]}
+      },
+      "additionalProperties": false
+    },
+    "capability": {
+      "type": "object",
+      "required": ["description", "availability", "limits"],
+      "properties": {
+        "description": {"type": "string", "minLength": 1},
+        "availability": {"type": "string", "minLength": 1},
+        "limits": {"$ref": "#/$defs/string_list"}
+      },
+      "additionalProperties": false
+    },
+    "limit": {
+      "type": "object",
+      "required": ["description", "unit", "period", "enforcement"],
+      "properties": {
+        "description": {"type": "string", "minLength": 1},
+        "unit": {"type": "string", "minLength": 1},
+        "period": {"enum": ["permanent", "minute", "hour", "day", "month"]},
+        "enforcement": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "resource": {
+      "type": "object",
+      "required": ["description", "owner", "ownership_rule"],
+      "properties": {
+        "description": {"type": "string", "minLength": 1},
+        "owner": {"enum": ["authenticated_actor", "site", "system"]},
+        "ownership_rule": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "server_rule": {
+      "type": "object",
+      "required": ["id", "text"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+        "text": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "authorization": {
+      "type": "object",
+      "required": ["dimensions", "evaluation_order", "catalog_visibility", "ownership_denial"],
+      "properties": {
+        "dimensions": {"$ref": "#/$defs/string_list"},
+        "evaluation_order": {"$ref": "#/$defs/string_list"},
+        "catalog_visibility": {"type": "string", "minLength": 1},
+        "ownership_denial": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "error_code": {
+      "type": "object",
+      "required": ["meaning", "retryable", "details"],
+      "properties": {
+        "meaning": {"type": "string", "minLength": 1},
+        "retryable": {"type": "boolean"},
+        "details": {"$ref": "#/$defs/string_list"}
+      },
+      "additionalProperties": false
+    },
+    "data_classification": {
+      "type": "object",
+      "required": ["description", "trust", "human_visible", "redaction"],
+      "properties": {
+        "description": {"type": "string", "minLength": 1},
+        "trust": {"enum": ["trusted", "untrusted", "instruction_like_data"]},
+        "human_visible": {"type": "boolean"},
+        "redaction": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "audit_profile": {
+      "type": "object",
+      "required": ["event", "fields", "input_recording"],
+      "properties": {
+        "event": {"type": "string", "minLength": 1},
+        "fields": {"$ref": "#/$defs/string_list"},
+        "input_recording": {"enum": ["redacted_summary", "keyed_hash", "none"]}
+      },
+      "additionalProperties": false
+    },
+    "mapping": {
+      "type": "object",
+      "required": [
+        "read_only_hint",
+        "destructive_hint",
+        "open_world_hint",
+        "security",
+        "capability_and_ownership",
+        "exposure"
+      ],
+      "properties": {
+        "read_only_hint": {"const": "side_effect == read_only"},
+        "destructive_hint": {"const": "destructive"},
+        "open_world_hint": {"const": "open_world"},
+        "security": {"type": "string", "minLength": 1},
+        "capability_and_ownership": {"type": "string", "minLength": 1},
+        "exposure": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "compatibility": {
+      "type": "object",
+      "required": ["strategy", "previous_major_minimum_days", "window_status", "versioning_rules"],
+      "properties": {
+        "strategy": {"enum": ["additive_superset", "versioned_tool", "versioned_endpoint"]},
+        "previous_major_minimum_days": {"type": ["integer", "null"], "minimum": 1},
+        "window_status": {"enum": ["not_applicable_initial_release", "defined"]},
+        "versioning_rules": {
+          "type": "object",
+          "required": ["patch", "minor", "major"],
+          "properties": {
+            "patch": {"type": "string", "minLength": 1},
+            "minor": {"type": "string", "minLength": 1},
+            "major": {"type": "string", "minLength": 1}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "approval_none": {
+      "type": "object",
+      "required": ["policy"],
+      "properties": {"policy": {"const": "none"}},
+      "additionalProperties": false
+    },
+    "approval_explicit": {
+      "type": "object",
+      "required": ["policy", "confirmation_owner", "input_field", "action", "resource_id_template"],
+      "properties": {
+        "policy": {"const": "explicit_intent"},
+        "confirmation_owner": {"enum": ["agent", "client"]},
+        "input_field": {"type": "string", "minLength": 1},
+        "action": {"type": "string", "minLength": 1},
+        "resource_id_template": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "idempotency": {
+      "type": "object",
+      "required": ["mode", "uncertain_result"],
+      "properties": {
+        "mode": {"enum": ["not_required", "key", "natural_key", "optimistic_revision"]},
+        "input_field": {"type": "string", "minLength": 1},
+        "natural_key": {"$ref": "#/$defs/string_list"},
+        "same_input": {"type": "string", "minLength": 1},
+        "different_input": {"type": "string", "minLength": 1},
+        "uncertain_result": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "tool_data": {
+      "type": "object",
+      "required": ["input", "output", "redaction"],
+      "properties": {
+        "input": {"$ref": "#/$defs/string_list"},
+        "output": {"$ref": "#/$defs/string_list"},
+        "redaction": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "tool": {
+      "type": "object",
+      "required": [
+        "title",
+        "description",
+        "exposure",
+        "input_schema",
+        "output_schema",
+        "authentication",
+        "required_scopes",
+        "required_capabilities",
+        "resource_type",
+        "ownership",
+        "side_effect",
+        "destructive",
+        "open_world",
+        "approval",
+        "idempotency",
+        "errors",
+        "data",
+        "audit"
+      ],
+      "properties": {
+        "title": {"type": "string", "minLength": 1},
+        "description": {"type": "string", "minLength": 1},
+        "exposure": {"enum": ["public", "internal"]},
+        "input_schema": {"$ref": "#/$defs/json_schema"},
+        "output_schema": {"$ref": "#/$defs/json_schema"},
+        "authentication": {"enum": ["required", "none"]},
+        "required_scopes": {"$ref": "#/$defs/string_list"},
+        "required_capabilities": {"$ref": "#/$defs/string_list"},
+        "resource_type": {"type": "string", "minLength": 1},
+        "ownership": {"type": "string", "minLength": 1},
+        "side_effect": {"enum": ["read_only", "reversible_write", "irreversible_write", "external_effect"]},
+        "destructive": {"type": "boolean"},
+        "open_world": {"type": "boolean"},
+        "approval": {"oneOf": [{"$ref": "#/$defs/approval_none"}, {"$ref": "#/$defs/approval_explicit"}]},
+        "idempotency": {"$ref": "#/$defs/idempotency"},
+        "errors": {"$ref": "#/$defs/string_list"},
+        "data": {"$ref": "#/$defs/tool_data"},
+        "audit": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "json_schema": {
+      "type": "object",
+      "properties": {
+        "$ref": {"type": "string"},
+        "$schema": {"type": "string"},
+        "title": {"type": "string"},
+        "description": {"type": "string"},
+        "type": {
+          "oneOf": [
+            {"enum": ["null", "boolean", "object", "array", "number", "string", "integer"]},
+            {
+              "type": "array",
+              "items": {"enum": ["null", "boolean", "object", "array", "number", "string", "integer"]},
+              "uniqueItems": true
+            }
+          ]
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/json_schema"}
+        },
+        "patternProperties": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/json_schema"}
+        },
+        "required": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "additionalProperties": {
+          "oneOf": [{"type": "boolean"}, {"$ref": "#/$defs/json_schema"}]
+        },
+        "items": {"$ref": "#/$defs/json_schema"},
+        "$defs": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/json_schema"}
+        },
+        "enum": {"type": "array", "minItems": 1},
+        "const": {},
+        "default": {},
+        "format": {"type": "string"},
+        "pattern": {"type": "string"},
+        "minimum": {"type": "number"},
+        "maximum": {"type": "number"},
+        "exclusiveMinimum": {"type": "number"},
+        "exclusiveMaximum": {"type": "number"},
+        "minLength": {"type": "integer", "minimum": 0},
+        "maxLength": {"type": "integer", "minimum": 0},
+        "minItems": {"type": "integer", "minimum": 0},
+        "maxItems": {"type": "integer", "minimum": 0},
+        "uniqueItems": {"type": "boolean"},
+        "minProperties": {"type": "integer", "minimum": 0},
+        "maxProperties": {"type": "integer", "minimum": 0},
+        "oneOf": {"type": "array", "items": {"$ref": "#/$defs/json_schema"}},
+        "anyOf": {"type": "array", "items": {"$ref": "#/$defs/json_schema"}},
+        "allOf": {"type": "array", "items": {"$ref": "#/$defs/json_schema"}},
+        "not": {"$ref": "#/$defs/json_schema"},
+        "contains": {"$ref": "#/$defs/json_schema"},
+        "minContains": {"type": "integer", "minimum": 0},
+        "maxContains": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    }
+  }
+}

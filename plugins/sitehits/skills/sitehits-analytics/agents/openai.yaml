@@ -1,0 +1,13 @@
+interface:
+  display_name: "SiteHits Analytics"
+  short_description: "Inspect and manage SiteHits analytics"
+  default_prompt: "Use $sitehits-analytics to inspect this site for the requested period."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "sitehits"
+      description: "Authenticated SiteHits analytics and management server"
+      transport: "streamable_http"
+      url: "https://sitehits.io/mcp"
+policy:
+  allow_implicit_invocation: true

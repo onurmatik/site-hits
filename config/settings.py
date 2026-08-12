@@ -1,10 +1,9 @@
-from pathlib import Path
 import os
+from pathlib import Path
 
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
-
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
@@ -44,6 +43,7 @@ INSTALLED_APPS = [
     "websites",
     "analytics",
     "dashboard",
+    "mcp_gateway",
 ]
 
 MIDDLEWARE = [
@@ -75,6 +75,7 @@ TEMPLATES = [
     }
 ]
 WSGI_APPLICATION = "config.wsgi.application"
+ASGI_APPLICATION = "config.asgi.application"
 
 DATABASES = {
     "default": dj_database_url.config(
@@ -211,6 +212,53 @@ SITEHITS_GOAL_PLANNING_TIMEOUT_SECONDS = float(
 SITEHITS_GOAL_PLANNING_RATE_LIMIT = int(
     os.environ.get("SITEHITS_GOAL_PLANNING_RATE_LIMIT", "10")
 )
+SITEHITS_MCP_ISSUER_URL_EXPLICIT = "SITEHITS_MCP_ISSUER_URL" in os.environ
+SITEHITS_MCP_ISSUER_URL = os.environ.get(
+    "SITEHITS_MCP_ISSUER_URL",
+    SITEHITS_BASE_URL,
+).rstrip("/")
+SITEHITS_MCP_RESOURCE_URL_EXPLICIT = "SITEHITS_MCP_RESOURCE_URL" in os.environ
+SITEHITS_MCP_RESOURCE_URL = os.environ.get(
+    "SITEHITS_MCP_RESOURCE_URL",
+    f"{SITEHITS_BASE_URL}/mcp",
+).rstrip("/")
+SITEHITS_MCP_HOST = os.environ.get("SITEHITS_MCP_HOST", "0.0.0.0")
+SITEHITS_MCP_PORT = int(os.environ.get("SITEHITS_MCP_PORT", "8000"))
+SITEHITS_MCP_TOKEN_SECRET_EXPLICIT = "SITEHITS_MCP_TOKEN_SECRET" in os.environ
+SITEHITS_MCP_TOKEN_SECRET = os.environ.get(
+    "SITEHITS_MCP_TOKEN_SECRET",
+    SECRET_KEY,
+)
+SITEHITS_MCP_DOCUMENTATION_URL_EXPLICIT = "SITEHITS_MCP_DOCUMENTATION_URL" in os.environ
+SITEHITS_MCP_DOCUMENTATION_URL = os.environ.get(
+    "SITEHITS_MCP_DOCUMENTATION_URL",
+    f"{SITEHITS_BASE_URL}/mcp-docs/",
+)
+SITEHITS_MCP_SKILL_UPDATE_URL = os.environ.get(
+    "SITEHITS_MCP_SKILL_UPDATE_URL",
+    f"{SITEHITS_BASE_URL}/mcp-docs/#standalone-skill-update",
+)
+SITEHITS_MCP_ACCESS_TOKEN_TTL_SECONDS = int(
+    os.environ.get("SITEHITS_MCP_ACCESS_TOKEN_TTL_SECONDS", "3600")
+)
+SITEHITS_MCP_REFRESH_TOKEN_TTL_SECONDS = int(
+    os.environ.get("SITEHITS_MCP_REFRESH_TOKEN_TTL_SECONDS", str(30 * 24 * 60 * 60))
+)
+SITEHITS_MCP_AUTHORIZATION_CODE_TTL_SECONDS = int(
+    os.environ.get("SITEHITS_MCP_AUTHORIZATION_CODE_TTL_SECONDS", "300")
+)
+SITEHITS_MCP_AUTHORIZATION_REQUEST_TTL_SECONDS = int(
+    os.environ.get("SITEHITS_MCP_AUTHORIZATION_REQUEST_TTL_SECONDS", "600")
+)
+SITEHITS_MCP_ALLOW_LEGACY_TOKENS = os.environ.get(
+    "SITEHITS_MCP_ALLOW_LEGACY_TOKENS",
+    "true" if DEBUG else "false",
+).lower() in {"1", "true", "yes"}
+SITEHITS_MCP_CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("SITEHITS_MCP_CORS_ORIGINS", "*").split(",")
+    if origin.strip()
+]
 
 SECURE_PROXY_SSL_HEADER = (
     ("HTTP_X_FORWARDED_PROTO", "https") if SITEHITS_TRUST_PROXY_HEADERS else None

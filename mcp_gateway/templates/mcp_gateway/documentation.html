@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}MCP integration · SiteHits{% endblock %}
+
+{% block body %}
+<main class="mx-auto max-w-4xl px-6 py-14">
+  <p class="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-700">Agent integration</p>
+  <h1 class="mt-3 text-4xl font-semibold tracking-tight text-slate-950">SiteHits MCP</h1>
+  <p class="mt-4 max-w-2xl text-lg text-slate-600">
+    Streamable HTTP analytics CRUD and reporting with OAuth Authorization Code, PKCE, resource-bound tokens, and per-user site isolation.
+  </p>
+
+  <section class="mt-10 grid gap-5 md:grid-cols-2">
+    <article class="rounded-2xl border border-slate-200 bg-white p-6">
+      <h2 class="font-semibold text-slate-950">Endpoint</h2>
+      <code class="mt-3 block break-all rounded-lg bg-slate-950 p-3 text-sm text-emerald-300">{{ mcp_resource_url }}</code>
+      <p class="mt-3 text-sm text-slate-600">Clients discover OAuth from the protected-resource challenge and public metadata.</p>
+    </article>
+    <article class="rounded-2xl border border-slate-200 bg-white p-6">
+      <h2 class="font-semibold text-slate-950">Scopes</h2>
+      <dl class="mt-3 space-y-2 text-sm text-slate-700">
+        <div><dt class="inline font-medium">read</dt><dd class="inline"> — sites, analytics, configuration, redacted setup</dd></div>
+        <div><dt class="inline font-medium">write</dt><dd class="inline"> — site and measurement CRUD</dd></div>
+      </dl>
+    </article>
+  </section>
+
+  <section id="standalone-skill-update" class="mt-10 rounded-2xl border border-slate-200 bg-slate-50 p-6">
+    <h2 class="text-xl font-semibold text-slate-950">Standalone skill updates</h2>
+    <p class="mt-2 text-slate-600">The installed standalone skill is a snapshot. Update it only during setup, explicit update work, diagnostics, or when compatibility reports <code>upgrade_required</code>. Plugin updates remain the primary distribution path.</p>
+  </section>
+</main>
+{% endblock %}

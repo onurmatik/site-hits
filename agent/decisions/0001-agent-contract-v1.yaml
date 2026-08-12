@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "decision_record_version": 1,
+  "id": "0001-agent-contract-v1",
+  "status": "accepted",
+  "date": "2026-08-12",
+  "agent_contract_version": "1.0.0",
+  "title": "Establish the SiteHits Agent Contract v1 semantic boundary",
+  "context": "SiteHits has no external agent consumer, so the first canonical Contract can replace the provisional integration-first surface without a compatibility window.",
+  "decisions": [
+    {
+      "id": "canonical-source",
+      "decision": "agent/contract.yaml is the only semantic source for model-visible tools, authorization, approval, entitlement, errors, idempotency, data handling, audit, and compatibility."
+    },
+    {
+      "id": "identity-and-ownership",
+      "decision": "authenticated_actor_id identifies the product account actor, authenticated_client_id identifies the integration client, and tenant_id is absent. Site descendants inherit site ownership. Owner-null sites are system-owned and require global_resource_access."
+    },
+    {
+      "id": "authorization-dimensions",
+      "decision": "Authentication, declared scope, capability, ownership, limit, and approval are evaluated independently. Scopes are exactly read and write; plan names never authorize a call."
+    },
+    {
+      "id": "bootstrap",
+      "decision": "get_account_capabilities is the sole bootstrap tool. It requires read, no paid capability, and reports all six capabilities plus the permanent sites limit without exposing authenticated actor or client identifiers. get_integration_status remains public diagnostics and is not bootstrap."
+    },
+    {
+      "id": "capabilities",
+      "decision": "The capabilities are site_management, traffic_analytics, bot_analytics, product_measurement, tracking_setup, and global_resource_access. The first five are available to authenticated MVP actors; the final capability is available only to privileged product administrators."
+    },
+    {
+      "id": "credential-boundary",
+      "decision": "Secrets and private tracking credentials are forbidden in all tool input, output, errors, and audit. Tracking tools return placeholders and setup_guidance; they never accept include_credentials. Browser public keys may appear in browser snippets."
+    },
+    {
+      "id": "guidance-trust",
+      "decision": "All instruction-like tool output, including setup_guidance, is data rather than agent instruction and may not be executed without a separate authorized request."
+    },
+    {
+      "id": "confirmation-owner",
+      "decision": "The agent is the single confirmation owner. Irreversible calls accept one nested approval assertion bound to action and exact resource_id; no redundant confirmation boolean or duplicate exact-name guard is used."
+    },
+    {
+      "id": "measurement-split",
+      "decision": "update_measurement_event changes only reversible display metadata. change_measurement_event_contract changes aggregation or unit and is always irreversible, destructive, revision-checked, and agent-approved."
+    },
+    {
+      "id": "idempotency-and-revisions",
+      "decision": "create_site requires an explicit idempotency_key; create_measurement_event uses site_slug plus event_name as a natural key. Mutable resources expose opaque revisions and all updates/deletes require expected_revision."
+    },
+    {
+      "id": "public-identifiers",
+      "decision": "Tool outputs never expose internal database IDs or trace IDs. Site slug and event_name are stable public resource identifiers; request_id is an opaque public correlation identifier."
+    },
+    {
+      "id": "audit-privacy",
+      "decision": "Write audit inputs use a server-secret keyed hash, not a plain canonical hash, so low-entropy inputs cannot be enumerated offline."
+    },
+    {
+      "id": "retention",
+      "decision": "Audit events are retained for 90 days. create_site idempotency replay and conflict guarantees last 90 days; after expiry the same key is fresh."
+    },
+    {
+      "id": "compatibility",
+      "decision": "The initial major uses additive_superset. A previous-major window is not applicable because no earlier Contract or external consumer exists. Every future breaking-major decision record must select a non-null support window and release-specific conformance suite."
+    }
+  ],
+  "consequences": [
+    "MCP, standalone skill, and plugin artifacts must pin and map this Contract release rather than re-declare semantics.",
+    "The provisional MCP surface must remove credential reads, introduce bootstrap and contract-change tools, expose exact schemas, and implement structured application errors before its downstream gate passes.",
+    "No immutable tag or release descriptor is created until the canonical Contract and conformance vectors are committed and the Stage 0 gate is green."
+  ]
+}

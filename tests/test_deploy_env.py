@@ -1,7 +1,6 @@
 import importlib.util
 from pathlib import Path
 
-
 SYNC_ENV_PATH = Path(__file__).resolve().parents[1] / ".deploy" / "sync_env.py"
 FABFILE_PATH = Path(__file__).resolve().parents[1] / ".deploy" / "fabfile.py"
 SPEC = importlib.util.spec_from_file_location("sitehits_sync_env", SYNC_ENV_PATH)
@@ -41,3 +40,12 @@ def test_deploy_contract_syncs_goal_planning_configuration():
     assert '"SITEHITS_GOAL_PLANNING_MODEL"' in contract
     assert '"SITEHITS_GOAL_PLANNING_TIMEOUT_SECONDS"' in contract
     assert '"SITEHITS_GOAL_PLANNING_RATE_LIMIT"' in contract
+
+
+def test_deploy_contract_provisions_and_syncs_mcp_oauth_configuration():
+    contract = FABFILE_PATH.read_text()
+
+    assert "printf 'SITEHITS_MCP_TOKEN_SECRET=%s" in contract
+    assert '"SITEHITS_MCP_TOKEN_SECRET"' in contract
+    assert '"SITEHITS_MCP_RESOURCE_URL"' in contract
+    assert '"SITEHITS_MCP_ALLOW_LEGACY_TOKENS"' in contract
