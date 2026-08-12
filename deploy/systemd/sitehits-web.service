@@ -1,0 +1,24 @@
+[Unit]
+Description=SiteHits Django web process (immutable GHCR image)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/apps/sitehits
+EnvironmentFile=/srv/apps/sitehits/.env
+ExecStartPre=/srv/apps/sitehits/deploy/validate-image-ref.sh
+ExecStartPre=/usr/bin/docker pull ${SITEHITS_MCP_IMAGE_REF}
+ExecStartPre=-/usr/bin/docker rm -f sitehits-web
+ExecStartPre=/usr/bin/docker run --rm --network host --env-file /srv/apps/sitehits/.env --mount type=bind,src=/var/lib/GeoIP/GeoLite2-City.mmdb,dst=/var/lib/GeoIP/GeoLite2-City.mmdb,readonly ${SITEHITS_MCP_IMAGE_REF} python manage.py check --deploy
+ExecStartPre=/usr/bin/docker run --rm --network host --env-file /srv/apps/sitehits/.env --mount type=bind,src=/var/lib/GeoIP/GeoLite2-City.mmdb,dst=/var/lib/GeoIP/GeoLite2-City.mmdb,readonly ${SITEHITS_MCP_IMAGE_REF} python manage.py migrate --noinput
+ExecStart=/usr/bin/docker run --rm --name sitehits-web --network host --env-file /srv/apps/sitehits/.env --env WEB_HOST=127.0.0.1 --env RUN_MIGRATIONS=false --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m --cap-drop ALL --security-opt no-new-privileges --mount type=bind,src=/var/lib/GeoIP/GeoLite2-City.mmdb,dst=/var/lib/GeoIP/GeoLite2-City.mmdb,readonly ${SITEHITS_MCP_IMAGE_REF} sh scripts/start.sh web
+ExecStop=/usr/bin/docker stop --time 30 sitehits-web
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

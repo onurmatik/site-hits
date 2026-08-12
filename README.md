@@ -29,9 +29,10 @@ uv run python manage.py runserver
 
 Open [http://localhost:8000/](http://localhost:8000/) and enter a website to test the public onboarding flow. Local magic-link emails are printed to the server console by default. Django admin remains available at [http://localhost:8000/admin/](http://localhost:8000/admin/) for staff users, and the dashboard is at [http://localhost:8000/dashboard/all](http://localhost:8000/dashboard/all).
 
-SQLite is used for local development and the current StageOps deployment. Set
-`DATABASE_URL` to PostgreSQL only for deployments that need higher write
-concurrency.
+SQLite is used only for local development. Stage 1 production requires
+PostgreSQL 17 through `DATABASE_URL`; production startup fails closed for any
+other database engine because SQLite cannot provide the accepted concurrency
+evidence or row-lock semantics.
 
 ## Install on a site
 
@@ -132,17 +133,27 @@ Clients discover the authorization server from the `401` challenge and public pr
 metadata. Authentication uses Authorization Code with PKCE `S256`; dynamic registration accepts
 public clients and issued access tokens are bound to the canonical MCP resource.
 
-This release intentionally implements the checklist's public-client DCR path on the maintained
-`mcp` 1.x SDK line. The 2026-07-28 MCP specification and Python SDK 2.x prefer Client ID Metadata
-Documents (CIMD); SiteHits does not advertise CIMD until remote metadata validation and its SSRF
-controls are implemented. Treat the SDK 2.x/CIMD move as a separate compatibility release, not an
-automatic dependency bump.
+This release implements the public-client DCR path with Django OAuth Toolkit 3.4 and the official
+Python MCP SDK 2.0. CIMD is deliberately not advertised in V1; the dated DCR review triggers and
+operational acceptance requirements are recorded in
+`agent/decisions/0002-mcp-oauth-v1.yaml`.
 
 For Codex, install the plugin and start its native OAuth flow:
 
 ```bash
 codex mcp login --scopes read,write sitehits
 ```
+
+Claude Code is the required cross-agent acceptance client. Configure and authenticate it with its
+native user-scope commands:
+
+```bash
+claude mcp add --transport http --scope user sitehits https://sitehits.io/mcp
+claude mcp login sitehits
+```
+
+The production release descriptor pins `integration/client-compatibility.yaml` and immutable smoke
+evidence for ChatGPT, Codex, and Claude Code. MCP Inspector remains diagnostic only.
 
 The consent page uses the existing SiteHits sign-in. An authenticated MCP client has the same
 resource ownership boundary as its linked Django user: superusers can access every site and regular
@@ -151,9 +162,8 @@ users only their own. OAuth scopes are an additional coarse permission layer:
 - `read` for sites, reports, measurement configuration, and redacted tracking setup;
 - `write` for site, measurement-event, and activation mutations.
 
-Production defaults to OAuth-only. `create_mcp_token` and `SITEHITS_MCP_ALLOW_LEGACY_TOKENS=true`
-exist solely as an opt-in migration bridge for previously issued static tokens; distributed plugin
-configuration does not use them.
+Production is OAuth-only. Stage 1 is a clean cut with no external compatibility window; legacy
+static MCP bearer tokens are not part of the production protocol.
 
 The Streamable HTTP endpoint is `https://sitehits.io/mcp`. Its tools cover:
 
@@ -169,23 +179,60 @@ manager. `get_tracking_setup` is a UI-less structured tool.
 `text/html;profile=mcp-app` resource rendered from a Django template and the compiled Tailwind
 stylesheet.
 
-The distributable bundle is in `plugins/sitehits/`. It includes Codex plugin metadata, Agent Plugins
-Specification 1.0.0 `plugin.json` and `mcp.json`, a period-agnostic `sitehits-analytics` skill, and
-installation/release guidance. The public `/agent-manifest.json` and read-only
-`get_integration_status` tool expose independent server, Agent Contract, skill, and plugin versions.
+Draft Skill and plugin packaging remains in `plugins/sitehits/`, but Stage 1 intentionally does not
+promote or distribute it yet. Agentic Product Lifecycle requires the sealed MCP descriptor and
+skill-independent production acceptance before Skill Distribution, followed by Plugin Distribution.
+The public `/agent-manifest.json` and read-only `get_integration_status` tool expose independent
+server, Agent Contract, skill, and plugin versions without making those later artifacts an MCP
+acceptance dependency.
 
 ## Production configuration
 
 Copy `.env.example` and supply real secrets. Important details:
 
 - Use an independent `SITEHITS_HASH_SECRET`; changing it breaks hash continuity for that day.
-- Set `SITEHITS_TRUST_PROXY_HEADERS=true` only when the reverse proxy overwrites untrusted forwarding headers.
+- Set `SITEHITS_TRUST_PROXY_HEADERS=true` only behind the managed reverse proxy and restrict
+  `SITEHITS_TRUSTED_PROXY_IPS` to its direct peer addresses. Uvicorn ignores forwarded headers from
+  every other peer.
 - Provision a MaxMind GeoLite2 City database and set `SITEHITS_GEOIP_DB_PATH`. The checked-in deploy task installs and periodically runs `geoipupdate`; `manage.py check --deploy` fails if the configured database is missing, invalid, or the wrong MMDB type. Existing events are not location-backfilled because raw IP addresses are never stored.
+- Production must use PostgreSQL 17, matching the concurrency acceptance suite. `manage.py check --deploy` opens the configured database and rejects any other engine or major version.
 - Run the collector over HTTPS. Configure the reverse proxy to limit request rates and cap `/api/events` bodies.
 - Schedule `python manage.py purge_old_events --days 365` daily.
-- Set `SITEHITS_MCP_TOKEN_SECRET` to an independent long-lived secret before enabling MCP OAuth. Changing it invalidates every authorization code, access token, refresh token, and legacy token digest.
-- Set `SITEHITS_MCP_ISSUER_URL` and `SITEHITS_MCP_RESOURCE_URL` when the externally visible MCP origin or path differs from `SITEHITS_BASE_URL` and `/mcp`.
-- Keep `SITEHITS_MCP_ALLOW_LEGACY_TOKENS=false` in production unless a time-bounded static-token migration is actively underway.
+- Set `SITEHITS_MCP_TOKEN_SECRET` to an independent long-lived HMAC key for security-event and
+  rate-limit pseudonyms. OAuth credentials are stored with one-way SHA-256 digests and do not
+  depend on this key.
+- Configure the byte-exact public identity as `SITEHITS_BASE_URL=https://sitehits.io`,
+  `SITEHITS_MCP_ISSUER_URL=https://sitehits.io`, and
+  `SITEHITS_MCP_RESOURCE_URL=https://sitehits.io/mcp`. Startup rejects normalization candidates,
+  origin drift, userinfo, query/fragment, and unexpected trailing slashes.
+- The clean-cut Stage 1 release has no static-token issuance command, fallback verifier, or
+  compatibility switch. Historical provisional rows remain cleanup-only until a later destructive
+  migration.
+- Set `SITEHITS_MCP_CORS_ORIGINS` to the explicit ChatGPT/Codex browser-origin allowlist. A wildcard
+  is rejected outside local development. Authorization endpoints do not inherit MCP CORS.
+- Set `SITEHITS_MCP_SKILL_UPDATE_URL=https://sitehits.io/INSTALL.md`; the URL remains a Stage 2
+  production gate until its same-origin public redirect is deployed.
+- OAuth lifetimes are fixed in code: authorization code 60 seconds, access token 15 minutes, and
+  refresh family an absolute 30 days; environment overrides are intentionally unsupported.
+
+### Separate web and MCP processes
+
+The public origin is shared, but the runtimes are not. The reverse proxy sends only `/mcp` to the
+dedicated MCP process on loopback port 8001. Discovery, `/oauth/`, consent, and ordinary SiteHits
+routes stay on the Django web process on port 8000. Both use the same settings, PostgreSQL database,
+account model, and service layer.
+
+```bash
+# Process 1: Django web and embedded OAuth provider
+scripts/start.sh web
+
+# Process 2: stateless Streamable HTTP MCP resource
+scripts/start.sh mcp
+```
+
+Only the web process may run migrations (`RUN_MIGRATIONS=true`, the default). Production systemd and
+Nginx examples are under `deploy/`; the complete rollout, cleanup, release, and rollback procedure is
+in `docs/runbooks/mcp-stage1.md`.
 
 ### Passwordless and Google authentication
 
@@ -208,7 +255,10 @@ overrides from `.env-prod` into the preserved runtime environment.
 
 Both methods preserve the submitted website and resume at `/onboarding/`. New tracked sites are owned by the authenticated user; regular users can only open and query their own sites.
 
-The included Dockerfile builds Tailwind/Chart.js assets, collects static files, applies migrations, and starts Uvicorn with the combined Django and MCP ASGI application. Health checks should target `/health/`.
+The included image contains both entrypoints; orchestration starts one web container/process with
+`scripts/start.sh web` and one MCP container/process with `scripts/start.sh mcp`. Health checks for
+the web process should target `/health/`; MCP acceptance uses authenticated initialize/bootstrap
+smoke through the public reverse proxy.
 
 ## Verification
 

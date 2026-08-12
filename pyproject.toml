@@ -19,8 +19,13 @@ dependencies = [
   "PyJWT>=2.10,<3",
   "openai>=2.46,<3",
   "jsonschema>=4.26,<5",
-  "mcp<2",
+  "django-oauth-toolkit>=3.4,<3.5",
+  "django-embedded-mcp",
+  "mcp>=2.0,<2.1",
 ]
+
+[tool.uv.sources]
+django-embedded-mcp = { path = "packages/django-embedded-mcp" }
 
 [dependency-groups]
 dev = [

@@ -1,5 +1,12 @@
 .git
 .env
+.env.*
+.env-*
+**/.env
+**/.env.*
+**/.env-*
+.deploy/deploy.env
+!.env.example
 .venv
 __pycache__
 *.pyc
@@ -8,4 +15,3 @@ node_modules
 staticfiles
 .pytest_cache
 .superdesign
-

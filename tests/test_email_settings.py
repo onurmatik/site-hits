@@ -14,6 +14,7 @@ def _settings_process(extra_env, *, debug=False):
         "AWS_SES_REGION_NAME",
         "AWS_DEFAULT_REGION",
         "AWS_SES_REGION_ENDPOINT",
+        "DATABASE_URL",
     ):
         env.pop(name, None)
     env.update(
@@ -21,6 +22,27 @@ def _settings_process(extra_env, *, debug=False):
             "DJANGO_SETTINGS_MODULE": "config.settings",
             "DJANGO_DEBUG": "true" if debug else "false",
             "DJANGO_SECRET_KEY": "test-only-secret-key-with-more-than-fifty-characters-123456789",
+            "SITEHITS_BASE_URL": (
+                "http://localhost:8000" if debug else "https://sitehits.example"
+            ),
+            "SITEHITS_MCP_ISSUER_URL": (
+                "http://localhost:8000" if debug else "https://sitehits.example"
+            ),
+            "SITEHITS_MCP_RESOURCE_URL": (
+                "http://localhost:8000/mcp" if debug else "https://sitehits.example/mcp"
+            ),
+            "SITEHITS_MCP_CORS_ORIGINS": (
+                "http://localhost:3000,http://127.0.0.1:3000"
+                if debug
+                else "https://chatgpt.com,https://codex.openai.com"
+            ),
+            "DATABASE_URL": (
+                "sqlite:///:memory:"
+                if debug
+                else "postgresql://sitehits:test@127.0.0.1:5432/sitehits"
+            ),
+            "SITEHITS_TRUST_PROXY_HEADERS": "false" if debug else "true",
+            "SITEHITS_TRUSTED_PROXY_IPS": "127.0.0.1,::1",
             **extra_env,
         }
     )
@@ -84,3 +106,17 @@ def test_production_ses_backend_fails_fast_without_credentials():
     assert "AWS_SES_ACCESS_KEY_ID" in result.stderr
     assert "AWS_SES_SECRET_ACCESS_KEY" in result.stderr
     assert "AWS_SES_REGION_NAME" in result.stderr
+
+
+def test_production_settings_reject_non_postgresql_database():
+    result = _settings_process(
+        {
+            "DATABASE_URL": "sqlite:///:memory:",
+            "AWS_SES_ACCESS_KEY_ID": "ses-access-key",
+            "AWS_SES_SECRET_ACCESS_KEY": "ses-secret-key",
+            "AWS_SES_REGION_NAME": "eu-west-1",
+        }
+    )
+
+    assert result.returncode != 0
+    assert "Stage 1 production requires PostgreSQL" in result.stderr

@@ -1,0 +1,58 @@
+name: MCP Stage 1 PostgreSQL conformance
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-17:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.10
+        env:
+          POSTGRES_DB: sitehits
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sitehits"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/sitehits
+      DJANGO_DEBUG: "true"
+      DJANGO_SECRET_KEY: stage1-postgres-conformance-only
+      SITEHITS_MCP_TOKEN_SECRET: stage1-postgres-independent-test-secret
+      SITEHITS_BASE_URL: http://localhost:8000
+      SITEHITS_MCP_ISSUER_URL: http://localhost:8000
+      SITEHITS_MCP_RESOURCE_URL: http://localhost:8000/mcp
+      SITEHITS_MCP_CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Scan repository history for secrets
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install locked dependencies
+        run: uv sync --frozen
+      - name: Verify migration graph
+        run: |
+          test "$(psql "$DATABASE_URL" -Atc 'show server_version_num')" = "170010"
+          uv run python manage.py check --deploy --tag database
+          uv run python manage.py migrate --plan
+          uv run python manage.py makemigrations --check --dry-run
+      - name: Run Stage 1 state-machine and transport suites on PostgreSQL 17
+        run: uv run pytest -q

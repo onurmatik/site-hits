@@ -1,878 +1,637 @@
 from __future__ import annotations
 
+import json
 import re
-from dataclasses import dataclass
+from contextvars import ContextVar
 from datetime import timedelta
-from ipaddress import ip_address
-from typing import Any
-from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit
-from uuid import UUID, uuid4
 
-from asgiref.sync import sync_to_async
 from django.conf import settings
-from django.db import IntegrityError, transaction
-from django.urls import reverse
+from django.db import transaction
+from django.db.models import F, Q
 from django.utils import timezone
-from mcp.server.auth.provider import (
-    AccessToken,
-    AuthorizationCode,
-    AuthorizationParams,
-    AuthorizeError,
-    OAuthAuthorizationServerProvider,
-    RefreshToken,
-    RegistrationError,
-    TokenError,
-    construct_redirect_uri,
+from django_embedded_mcp.oauth import credential_digest
+from django_embedded_mcp.oauth import normalize_scopes as shared_normalize_scopes
+from django_embedded_mcp.redirects import (
+    redirect_uri_matches as shared_redirect_uri_matches,
 )
-from mcp.shared.auth import (
-    InvalidRedirectUriError,
-    OAuthClientInformationFull,
-    OAuthToken,
+from django_embedded_mcp.redirects import (
+    validate_registered_redirect_uri as shared_validate_registered_redirect_uri,
 )
-from pydantic import AnyUrl
+from django_embedded_mcp.refresh import (
+    RefreshFamilyDecision,
+    RefreshFamilyPolicy,
+    RefreshFamilyState,
+    RefreshMemberState,
+)
+from django_embedded_mcp.resource import (
+    ExactResourceError,
+    exact_resource_from_pairs,
+    validate_canonical_url,
+)
+from oauth2_provider.models import (
+    get_access_token_model,
+    get_grant_model,
+    get_refresh_token_model,
+)
+from oauth2_provider.oauth2_validators import OAuth2Validator
+from oauthlib.oauth2.rfc6749 import errors
 
-from .models import (
-    MCPAccessToken,
-    MCPOAuthAccessToken,
-    MCPOAuthAuthorizationCode,
-    MCPOAuthAuthorizationRequest,
-    MCPOAuthClient,
-    MCPOAuthRefreshToken,
-)
-
-SITEHITS_OAUTH_SCOPES = frozenset({"read", "write"})
+AUTHORIZATION_CODE_TTL = timedelta(seconds=60)
+ACCESS_TOKEN_TTL = timedelta(minutes=15)
+REFRESH_FAMILY_TTL = timedelta(days=30)
 _PKCE_S256_PATTERN = re.compile(r"^[A-Za-z0-9_-]{43}$")
+_REFRESH_AUDIT_DECISION: ContextVar[RefreshFamilyDecision | None] = ContextVar(
+    "sitehits_refresh_audit_decision",
+    default=None,
+)
 
 
-class SiteHitsOAuthClientInformation(OAuthClientInformationFull):
-    """OAuth client metadata with RFC 8252 loopback-port matching."""
+def begin_refresh_audit_capture():
+    """Start one request-local refresh-policy decision capture."""
 
-    def validate_redirect_uri(self, redirect_uri: AnyUrl | None) -> AnyUrl:
-        if redirect_uri is None:
-            if self.redirect_uris is None or len(self.redirect_uris) != 1:
-                raise InvalidRedirectUriError(
-                    "redirect_uri must be specified when client has multiple registered URIs"
-                )
-            return self.redirect_uris[0]
+    return _REFRESH_AUDIT_DECISION.set(None)
 
-        if self.redirect_uris is None:
-            raise InvalidRedirectUriError(
-                f"Redirect URI '{redirect_uri}' not registered for client"
-            )
 
-        requested = str(redirect_uri)
-        for registered_uri in self.redirect_uris:
-            registered = str(registered_uri)
-            if requested == registered or _loopback_redirects_match(
-                registered,
-                requested,
-            ):
-                return redirect_uri
+def current_refresh_audit_decision() -> RefreshFamilyDecision | None:
+    """Return the latest package-owned decision for the current request."""
 
-        raise InvalidRedirectUriError(
-            f"Redirect URI '{redirect_uri}' not registered for client"
+    return _REFRESH_AUDIT_DECISION.get()
+
+
+def end_refresh_audit_capture(token) -> None:
+    """Restore the previous context so worker reuse cannot leak audit state."""
+
+    _REFRESH_AUDIT_DECISION.reset(token)
+
+
+def _capture_refresh_audit_decision(
+    decision: RefreshFamilyDecision,
+) -> RefreshFamilyDecision:
+    _REFRESH_AUDIT_DECISION.set(decision)
+    return decision
+
+
+def configured_resource() -> str:
+    """Return the configured byte-exact MCP resource after structural validation."""
+
+    return validate_canonical_url(
+        settings.SITEHITS_MCP_RESOURCE_URL,
+        require_https=not settings.DEBUG,
+        allow_root_path=False,
+    )
+
+
+def validate_registered_redirect_uri(uri: str) -> None:
+    """Enforce HTTPS callbacks or the exact supported HTTP loopback hosts."""
+
+    shared_validate_registered_redirect_uri(uri, allow_localhost=True)
+
+
+def loopback_redirects_match(registered_uri: str, requested_uri: str) -> bool:
+    """Allow only a loopback port change; every other URI component stays exact."""
+
+    return shared_redirect_uri_matches(
+        registered_uri,
+        requested_uri,
+        allow_localhost=True,
+    )
+
+
+def normalize_scopes(scopes, *, default=()) -> list[str]:
+    try:
+        return shared_normalize_scopes(
+            scopes,
+            supported_scopes=settings.SITEHITS_MCP_OAUTH_SCOPES,
+            required_scopes=settings.SITEHITS_MCP_BOOTSTRAP_SCOPES,
+            default_scopes=default,
         )
-
-
-class SiteHitsAuthorizationCode(AuthorizationCode):
-    record_id: int
-
-
-class SiteHitsRefreshToken(RefreshToken):
-    record_id: int
-    resource: str
-    family_id: str
-    was_used: bool = False
-
-
-class SiteHitsAccessToken(AccessToken):
-    record_id: int
-    family_id: str | None = None
-    legacy: bool = False
-
-
-class ConsentRequestError(ValueError):
-    """Raised when a persisted consent request cannot safely be resolved."""
-
-
-@dataclass(frozen=True)
-class _ExchangeResult:
-    token: OAuthToken | None = None
-    error: str | None = None
-
-
-def _is_loopback_host(hostname: str | None) -> bool:
-    if hostname is None:
-        return False
-    normalized = hostname.rstrip(".").lower()
-    if normalized == "localhost":
-        return True
-    try:
-        return ip_address(normalized).is_loopback
-    except ValueError:
-        return False
-
-
-def _parse_redirect_uri(uri: str):
-    try:
-        parsed = urlsplit(uri)
-        # Accessing .port also rejects malformed or out-of-range ports.
-        _ = parsed.port
     except ValueError as exc:
-        raise InvalidRedirectUriError(f"Invalid redirect URI '{uri}'") from exc
-    return parsed
+        if "required scopes" in str(exc):
+            required = " ".join(settings.SITEHITS_MCP_BOOTSTRAP_SCOPES)
+            raise ValueError(f"The {required} scope is required.") from exc
+        raise
 
 
-def _validate_registered_redirect_uri(uri: str) -> None:
-    parsed = _parse_redirect_uri(uri)
-    if parsed.username is not None or parsed.password is not None or parsed.fragment:
-        raise InvalidRedirectUriError(
-            "Redirect URIs must not contain credentials or fragments"
+def exact_resource_values(values) -> list[str]:
+    expected = configured_resource()
+    pairs = [("resource", value) for value in values]
+    _, resource = exact_resource_from_pairs(pairs, expected=expected)
+    return [resource]
+
+
+def exact_resource_from_request_pairs(pairs) -> str:
+    _, resource = exact_resource_from_pairs(pairs, expected=configured_resource())
+    return resource
+
+
+def redirect_uri_digest(uri: str) -> str:
+    return credential_digest(uri)
+
+
+def _refresh_family_policy() -> RefreshFamilyPolicy:
+    return RefreshFamilyPolicy(expected_resource=configured_resource())
+
+
+def _refresh_family_state(family) -> RefreshFamilyState:
+    return RefreshFamilyState(
+        family_id=family.pk,
+        user_id=family.user_id,
+        client_id=family.application_id,
+        resource=family.resource,
+        expires_at=family.expires_at,
+        revoked_at=family.revoked_at,
+    )
+
+
+def _refresh_member_state(member) -> RefreshMemberState:
+    return RefreshMemberState(
+        user_id=member.user_id,
+        client_id=member.application_id,
+        family_id=member.family_state_id,
+        family_mirror_id=member.token_family,
+        resources=tuple(member.resource or ()),
+        consumed_at=member.revoked,
+    )
+
+
+def _evaluate_refresh_family(family, resources, *, now=None):
+    return _capture_refresh_audit_decision(
+        _refresh_family_policy().evaluate_family(
+            family=_refresh_family_state(family),
+            requested_resources=tuple(resources),
+            now=now or timezone.now(),
         )
-    if parsed.scheme == "https" and parsed.hostname:
-        return
-    if parsed.scheme == "http" and parsed.hostname and _is_loopback_host(parsed.hostname):
-        return
-    raise InvalidRedirectUriError(
-        "Redirect URIs must use HTTPS, except HTTP loopback redirects"
     )
 
 
-def _loopback_redirects_match(registered_uri: str, requested_uri: str) -> bool:
-    registered = _parse_redirect_uri(registered_uri)
-    requested = _parse_redirect_uri(requested_uri)
-    if registered.fragment or requested.fragment:
-        return False
-    if registered.username is not None or requested.username is not None:
-        return False
-    if registered.password is not None or requested.password is not None:
-        return False
-    if registered.scheme != "http" or requested.scheme != "http":
-        return False
-    if not _is_loopback_host(registered.hostname):
-        return False
-    if registered.hostname != requested.hostname:
-        return False
-    return (
-        registered.scheme == requested.scheme
-        and registered.path == requested.path
-        and registered.query == requested.query
-    )
-
-
-def _canonical_resource(resource: str | None) -> str | None:
-    if not resource:
-        return None
-    try:
-        parsed = urlsplit(resource)
-        port = parsed.port
-    except ValueError:
-        return None
-    if (
-        parsed.scheme.lower() not in {"http", "https"}
-        or not parsed.hostname
-        or parsed.username is not None
-        or parsed.password is not None
-        or parsed.query
-        or parsed.fragment
-    ):
-        return None
-    hostname = parsed.hostname.lower()
-    if ":" in hostname:
-        hostname = f"[{hostname}]"
-    netloc = hostname if port is None else f"{hostname}:{port}"
-    return urlunsplit((parsed.scheme.lower(), netloc, parsed.path, "", ""))
-
-
-def _configured_resource() -> str:
-    configured = _canonical_resource(settings.SITEHITS_MCP_RESOURCE_URL)
-    if configured is None:  # pragma: no cover - guarded by deployment checks.
-        raise RuntimeError("SITEHITS_MCP_RESOURCE_URL must be an absolute HTTP(S) URL")
-    return configured
-
-
-def _setting_seconds(name: str, default: int) -> int:
-    return int(getattr(settings, name, default))
-
-
-def _token_expiry_seconds(expires_at) -> int:
-    return max(0, int((expires_at - timezone.now()).total_seconds()))
-
-
-def _normalize_scopes(scopes: list[str] | None, *, default: list[str]) -> list[str]:
-    requested = scopes if scopes is not None else default
-    normalized = list(dict.fromkeys(requested))
-    if not normalized:
-        normalized = ["read"]
-    if any(scope not in SITEHITS_OAUTH_SCOPES for scope in normalized):
-        raise ValueError("One or more requested scopes are not supported")
-    if "read" not in normalized:
-        raise ValueError("The read scope is required")
-    return normalized
-
-
-def _client_from_record(record: MCPOAuthClient) -> SiteHitsOAuthClientInformation:
-    metadata = dict(record.metadata)
-    metadata["client_id"] = record.client_id
-    metadata["client_secret"] = None
-    metadata["token_endpoint_auth_method"] = "none"
-    return SiteHitsOAuthClientInformation.model_validate(metadata)
-
-
-def _authorization_code_from_record(
-    record: MCPOAuthAuthorizationCode,
-    raw_code: str,
-) -> SiteHitsAuthorizationCode:
-    return SiteHitsAuthorizationCode(
-        code=raw_code,
-        scopes=list(record.scopes),
-        expires_at=record.expires_at.timestamp(),
-        client_id=record.client.client_id,
-        code_challenge=record.code_challenge,
-        redirect_uri=record.redirect_uri,
-        redirect_uri_provided_explicitly=(
-            record.redirect_uri_provided_explicitly
-        ),
-        resource=record.resource,
-        subject=str(record.user_id),
-        record_id=record.pk,
-    )
-
-
-def _refresh_token_from_record(
-    record: MCPOAuthRefreshToken,
-    raw_token: str,
-) -> SiteHitsRefreshToken:
-    return SiteHitsRefreshToken(
-        token=raw_token,
-        client_id=record.client.client_id,
-        scopes=list(record.scopes),
-        # A rotated token remains loadable so its reuse can revoke the whole family,
-        # even after the old token's nominal expiry. The exchange method rechecks the
-        # authoritative database timestamps under a row lock.
-        expires_at=(None if record.used_at is not None else int(record.expires_at.timestamp())),
-        subject=str(record.user_id),
-        record_id=record.pk,
-        resource=record.resource,
-        family_id=str(record.family_id),
-        was_used=record.used_at is not None,
-    )
-
-
-def _oauth_access_token_from_record(
-    record: MCPOAuthAccessToken,
-    raw_token: str,
-) -> SiteHitsAccessToken:
-    return SiteHitsAccessToken(
-        token=raw_token,
-        client_id=record.client.client_id,
-        scopes=list(record.scopes),
-        expires_at=int(record.expires_at.timestamp()),
-        resource=record.resource,
-        subject=str(record.user_id),
-        claims={
-            "iss": settings.SITEHITS_MCP_ISSUER_URL,
-            "aud": record.resource,
-            "token_id": record.pk,
-            "family_id": str(record.family_id),
-        },
-        record_id=record.pk,
-        family_id=str(record.family_id),
-    )
-
-
-def _legacy_access_token_from_record(
-    record: MCPAccessToken,
-    raw_token: str,
-) -> SiteHitsAccessToken:
-    expires_at = (
-        int(record.expires_at.timestamp()) if record.expires_at is not None else None
-    )
-    return SiteHitsAccessToken(
-        token=raw_token,
-        client_id=f"sitehits-legacy-token-{record.pk}",
-        scopes=["read", "write"],
-        expires_at=expires_at,
-        resource=_configured_resource(),
-        subject=str(record.user_id),
-        claims={
-            "iss": settings.SITEHITS_MCP_ISSUER_URL,
-            "aud": _configured_resource(),
-            "token_id": record.pk,
-            "legacy": True,
-        },
-        record_id=record.pk,
-        legacy=True,
-    )
-
-
-class DjangoOAuthProvider(
-    OAuthAuthorizationServerProvider[
-        SiteHitsAuthorizationCode,
-        SiteHitsRefreshToken,
-        SiteHitsAccessToken,
-    ]
-):
-    """Django-backed OAuth 2.1 provider for the SiteHits MCP server."""
-
-    async def get_client(
-        self,
-        client_id: str,
-    ) -> SiteHitsOAuthClientInformation | None:
-        return await sync_to_async(
-            self._get_client,
-            thread_sensitive=True,
-        )(client_id)
-
-    @staticmethod
-    def _get_client(client_id: str) -> SiteHitsOAuthClientInformation | None:
-        record = MCPOAuthClient.objects.filter(
-            client_id=client_id,
-            revoked_at__isnull=True,
-        ).first()
-        return _client_from_record(record) if record is not None else None
-
-    async def register_client(self, client_info: OAuthClientInformationFull) -> None:
-        await sync_to_async(
-            self._register_client,
-            thread_sensitive=True,
-        )(client_info)
-
-    @staticmethod
-    def _register_client(client_info: OAuthClientInformationFull) -> None:
-        if (
-            client_info.token_endpoint_auth_method != "none"
-            or client_info.client_secret is not None
-        ):
-            raise RegistrationError(
-                error="invalid_client_metadata",
-                error_description=(
-                    "SiteHits accepts public OAuth clients only; "
-                    "token_endpoint_auth_method must be 'none'"
-                ),
-            )
-        if not client_info.client_id:
-            raise RegistrationError(
-                error="invalid_client_metadata",
-                error_description="client_id is required",
-            )
-        if set(client_info.grant_types) != {"authorization_code", "refresh_token"}:
-            raise RegistrationError(
-                error="invalid_client_metadata",
-                error_description=(
-                    "grant_types must contain only authorization_code and refresh_token"
-                ),
-            )
-        if client_info.response_types != ["code"]:
-            raise RegistrationError(
-                error="invalid_client_metadata",
-                error_description="response_types must contain only code",
-            )
-        if not client_info.redirect_uris:
-            raise RegistrationError(
-                error="invalid_redirect_uri",
-                error_description="At least one redirect URI is required",
-            )
-        try:
-            for redirect_uri in client_info.redirect_uris:
-                _validate_registered_redirect_uri(str(redirect_uri))
-        except InvalidRedirectUriError as exc:
-            raise RegistrationError(
-                error="invalid_redirect_uri",
-                error_description=exc.message,
-            ) from exc
-
-        requested_scopes = (
-            client_info.scope.split() if client_info.scope is not None else ["read"]
+def _evaluate_refresh_rotation(record, family, client, resources, request, *, now=None):
+    return _capture_refresh_audit_decision(
+        _refresh_family_policy().evaluate_rotation(
+            family=_refresh_family_state(family),
+            member=_refresh_member_state(record),
+            presented_client_id=getattr(client, "pk", None),
+            requested_resources=tuple(resources),
+            user_active=bool(record.user.is_active),
+            client_active=bool(record.application.is_usable(request)),
+            now=now or timezone.now(),
         )
-        try:
-            normalized_scopes = _normalize_scopes(
-                requested_scopes,
-                default=["read"],
-            )
-        except ValueError as exc:
-            raise RegistrationError(
-                error="invalid_client_metadata",
-                error_description=str(exc),
-            ) from exc
-        client_info.scope = " ".join(normalized_scopes)
+    )
 
-        metadata = client_info.model_dump(mode="json", exclude_none=True)
-        metadata["client_secret"] = None
-        metadata["token_endpoint_auth_method"] = "none"
-        try:
-            MCPOAuthClient.objects.create(
-                client_id=client_info.client_id,
-                metadata=metadata,
-            )
-        except IntegrityError as exc:  # pragma: no cover - UUID collision defense.
-            raise RegistrationError(
-                error="invalid_client_metadata",
-                error_description="client_id is already registered",
-            ) from exc
 
-    async def authorize(
-        self,
-        client: OAuthClientInformationFull,
-        params: AuthorizationParams,
-    ) -> str:
-        resource = _canonical_resource(params.resource)
-        if resource != _configured_resource():
-            raise AuthorizeError(
-                error="invalid_request",
-                error_description="resource must identify this SiteHits MCP server",
-            )
-        if not _PKCE_S256_PATTERN.fullmatch(params.code_challenge):
-            raise AuthorizeError(
-                error="invalid_request",
-                error_description="A valid S256 PKCE code_challenge is required",
-            )
-        try:
-            scopes = _normalize_scopes(params.scopes, default=["read"])
-        except ValueError as exc:
-            raise AuthorizeError(
-                error="invalid_scope",
-                error_description=str(exc),
-            ) from exc
+def _request_resource_values(request) -> list[str]:
+    resource = getattr(request, "resource", None)
+    decoded = getattr(request, "decoded_body", None) or []
+    repeated = [value for key, value in decoded if key == "resource"]
+    if repeated:
+        return repeated
+    if isinstance(resource, list):
+        return resource
+    return [resource] if isinstance(resource, str) and resource else []
 
-        consent_request_id = await sync_to_async(
-            self._create_authorization_request,
-            thread_sensitive=True,
-        )(
-            client_id=client.client_id,
-            redirect_uri=str(params.redirect_uri),
-            redirect_uri_provided_explicitly=(
-                params.redirect_uri_provided_explicitly
-            ),
-            scopes=scopes,
-            resource=resource,
-            state=params.state or "",
-            code_challenge=params.code_challenge,
-        )
-        consent_path = reverse("mcp-oauth-consent")
-        consent_url = urljoin(
-            f"{settings.SITEHITS_BASE_URL.rstrip('/')}/",
-            consent_path.lstrip("/"),
-        )
-        return f"{consent_url}?{urlencode({'request': str(consent_request_id)})}"
 
-    @staticmethod
-    def _create_authorization_request(
-        *,
-        client_id: str | None,
-        redirect_uri: str,
-        redirect_uri_provided_explicitly: bool,
-        scopes: list[str],
-        resource: str,
-        state: str,
-        code_challenge: str,
-    ) -> UUID:
-        client = MCPOAuthClient.objects.filter(
-            client_id=client_id,
-            revoked_at__isnull=True,
-        ).first()
-        if client is None:
-            raise AuthorizeError(
-                error="unauthorized_client",
-                error_description="OAuth client is no longer active",
-            )
-        request = MCPOAuthAuthorizationRequest.objects.create(
-            client=client,
-            redirect_uri=redirect_uri,
-            redirect_uri_provided_explicitly=redirect_uri_provided_explicitly,
-            scopes=scopes,
-            resource=resource,
-            state=state,
-            code_challenge=code_challenge,
-            expires_at=timezone.now()
-            + timedelta(
-                seconds=_setting_seconds(
-                    "SITEHITS_MCP_AUTHORIZATION_REQUEST_TTL_SECONDS",
-                    600,
-                )
-            ),
-        )
-        return request.pk
+def _grant_for_code(raw_code, *, application=None, include_consumed=True):
+    Grant = get_grant_model()
+    queryset = Grant.objects.select_related("application", "user").filter(
+        code_digest=credential_digest(raw_code)
+    )
+    if application is not None:
+        queryset = queryset.filter(application=application)
+    if not include_consumed:
+        queryset = queryset.filter(consumed_at__isnull=True)
+    return queryset.first()
 
-    async def load_authorization_code(
-        self,
-        client: OAuthClientInformationFull,
-        authorization_code: str,
-    ) -> SiteHitsAuthorizationCode | None:
-        return await sync_to_async(
-            self._load_authorization_code,
-            thread_sensitive=True,
-        )(client.client_id, authorization_code)
 
-    @staticmethod
-    def _load_authorization_code(
-        client_id: str | None,
-        raw_code: str,
-    ) -> SiteHitsAuthorizationCode | None:
-        if not raw_code.startswith("shc_") or len(raw_code) < 24:
-            return None
-        record = (
-            MCPOAuthAuthorizationCode.objects.select_related("client", "user")
-            .filter(
-                client__client_id=client_id,
-                client__revoked_at__isnull=True,
-                code_digest=MCPAccessToken.digest(raw_code),
-                consumed_at__isnull=True,
-            )
-            .first()
-        )
-        if (
-            record is None
-            or not record.user.is_active
-            or _canonical_resource(record.resource) != _configured_resource()
-        ):
-            return None
-        return _authorization_code_from_record(record, raw_code)
-
-    async def exchange_authorization_code(
-        self,
-        client: OAuthClientInformationFull,
-        authorization_code: SiteHitsAuthorizationCode,
-    ) -> OAuthToken:
-        result = await sync_to_async(
-            self._exchange_authorization_code,
-            thread_sensitive=True,
-        )(client.client_id, authorization_code)
-        if result.error:
-            raise TokenError(error="invalid_grant", error_description=result.error)
-        if result.token is None:  # pragma: no cover - defensive invariant.
-            raise TokenError(error="invalid_grant", error_description="Token exchange failed")
-        return result.token
-
-    @staticmethod
-    def _exchange_authorization_code(
-        client_id: str | None,
-        authorization_code: SiteHitsAuthorizationCode,
-    ) -> _ExchangeResult:
+def _revoke_code_family(code_digest: str) -> None:
+    Grant = get_grant_model()
+    AccessToken = get_access_token_model()
+    RefreshToken = get_refresh_token_model()
+    with transaction.atomic():
+        grant = Grant.objects.select_for_update().filter(code_digest=code_digest).first()
+        if grant is None:
+            return
         now = timezone.now()
+        if grant.replayed_at is None:
+            Grant.objects.filter(pk=grant.pk).update(replayed_at=now)
+        access_tokens = AccessToken.objects.filter(
+            authorization_code_digest=code_digest
+        )
+        family_state_ids = set(
+            RefreshToken.objects.filter(authorization_code_digest=code_digest)
+            .exclude(family_state=None)
+            .values_list("family_state_id", flat=True)
+        )
+        family_state_ids.update(
+            RefreshToken.objects.filter(access_token__in=access_tokens)
+            .exclude(family_state=None)
+            .values_list("family_state_id", flat=True)
+        )
+        for family_state_id in family_state_ids:
+            refresh_token = RefreshToken.objects.filter(
+                family_state_id=family_state_id
+            ).first()
+            if refresh_token is not None:
+                refresh_token.revoke_family()
+        access_tokens.filter(revoked_at__isnull=True).update(revoked_at=now)
+
+
+class SiteHitsOAuth2Validator(OAuth2Validator):
+    """DOT extension enforcing the Stage 1 public-client OAuth profile."""
+
+    def get_default_scopes(self, client_id, request, *args, **kwargs):
+        return []
+
+    def validate_scopes(self, client_id, scopes, client, request, *args, **kwargs):
+        try:
+            requested = normalize_scopes(scopes)
+        except ValueError:
+            return False
+        return set(requested).issubset(set(getattr(client, "allowed_scopes", [])))
+
+    def validate_grant_type(self, client_id, grant_type, client, request, *args, **kwargs):
+        return grant_type in {
+            "authorization_code",
+            "refresh_token",
+        } and super().validate_grant_type(
+            client_id, grant_type, client, request, *args, **kwargs
+        )
+
+    def validate_response_type(self, client_id, response_type, client, request, *args, **kwargs):
+        return response_type == "code" and super().validate_response_type(
+            client_id,
+            response_type,
+            client,
+            request,
+            *args,
+            **kwargs,
+        )
+
+    def is_pkce_required(self, client_id, request):
+        return True
+
+    def rotate_refresh_token(self, request):
+        return True
+
+    def validate_redirect_uri(self, client_id, redirect_uri, request, *args, **kwargs):
+        client = getattr(request, "client", None)
+        return bool(client and client.redirect_uri_allowed(redirect_uri))
+
+    def save_authorization_code(self, client_id, code, request, *args, **kwargs):
+        Grant = get_grant_model()
+        raw_code = code["code"]
+        resources = exact_resource_values(_request_resource_values(request))
+        if request.code_challenge_method != "S256" or not _PKCE_S256_PATTERN.fullmatch(
+            request.code_challenge or ""
+        ):
+            raise errors.InvalidRequestError(
+                description="S256 PKCE is required.",
+                request=request,
+            )
+        if not request.client.is_usable(request) or not request.user.is_active:
+            raise errors.InvalidGrantError(request=request)
         with transaction.atomic():
-            record = (
-                MCPOAuthAuthorizationCode.objects.select_for_update()
-                .select_related("client", "user")
+            Grant.objects.create(
+                application=request.client,
+                user=request.user,
+                code="",
+                code_digest=credential_digest(raw_code),
+                expires=timezone.now() + AUTHORIZATION_CODE_TTL,
+                redirect_uri=request.redirect_uri,
+                scope=" ".join(normalize_scopes(request.scopes)),
+                code_challenge=request.code_challenge,
+                code_challenge_method="S256",
+                nonce=request.nonce or "",
+                claims=json.dumps(request.claims or {}),
+                resource=resources,
+            )
+            # This is the durable "ever authorized" marker. It is written in
+            # the same transaction as the unexchanged grant so cleanup cannot
+            # later mistake this DCR client for an unused registration after
+            # terminal grant metadata has been deleted.
+            type(request.client).objects.filter(pk=request.client.pk).update(
+                last_used_at=timezone.now()
+            )
+
+    def validate_code(self, client_id, code, client, request, *args, **kwargs):
+        grant = _grant_for_code(code, application=client)
+        if grant is None:
+            return False
+        if grant.consumed_at is not None:
+            _revoke_code_family(grant.code_digest)
+            return False
+        try:
+            resources = exact_resource_values(_request_resource_values(request))
+        except (ExactResourceError, ValueError):
+            return False
+        if (
+            grant.is_expired()
+            or not grant.user.is_active
+            or not grant.application.is_usable(request)
+            or grant.resource != resources
+        ):
+            return False
+        request.scopes = grant.scope.split()
+        request.user = grant.user
+        request.resource = resources
+        if grant.nonce:
+            request.nonce = grant.nonce
+        if grant.claims:
+            request.claims = json.loads(grant.claims)
+        return True
+
+    def get_code_challenge(self, code, request):
+        grant = _grant_for_code(code, application=request.client, include_consumed=False)
+        return grant.code_challenge if grant is not None else None
+
+    def get_code_challenge_method(self, code, request):
+        grant = _grant_for_code(code, application=request.client, include_consumed=False)
+        return grant.code_challenge_method if grant is not None else None
+
+    def get_authorization_code_nonce(self, client_id, code, redirect_uri, request):
+        grant = _grant_for_code(code, application=request.client, include_consumed=False)
+        return grant.nonce if grant is not None and grant.nonce else None
+
+    def get_authorization_code_scopes(self, client_id, code, redirect_uri, request):
+        grant = _grant_for_code(code, application=request.client, include_consumed=False)
+        return grant.scope.split() if grant is not None else []
+
+    def confirm_redirect_uri(self, client_id, code, redirect_uri, client, *args, **kwargs):
+        Grant = get_grant_model()
+        now = timezone.now()
+        replayed_digest = None
+        with transaction.atomic():
+            grant = (
+                Grant.objects.select_for_update()
+                .select_related("application", "user")
                 .filter(
-                    pk=authorization_code.record_id,
-                    client__client_id=client_id,
-                    client__revoked_at__isnull=True,
-                    code_digest=MCPAccessToken.digest(authorization_code.code),
+                    code_digest=credential_digest(code),
+                    application=client,
                 )
                 .first()
             )
+            if grant is not None and grant.consumed_at is not None:
+                replayed_digest = grant.code_digest
             if (
-                record is None
-                or record.consumed_at is not None
-                or record.expires_at <= now
-                or not record.user.is_active
-                or _canonical_resource(record.resource) != _configured_resource()
+                grant is None
+                or replayed_digest is not None
+                or grant.expires <= now
+                or not grant.user.is_active
+                or not grant.application.is_usable(None)
+                or grant.resource != [configured_resource()]
+                or grant.redirect_uri != redirect_uri
             ):
-                return _ExchangeResult(error="Authorization code is invalid or expired")
-            record.consumed_at = now
-            record.save(update_fields=["consumed_at"])
+                updated = 0
+            else:
+                updated = Grant.objects.filter(
+                    pk=grant.pk,
+                    consumed_at__isnull=True,
+                ).update(consumed_at=now)
+                if updated != 1:
+                    replayed_digest = grant.code_digest
+        if replayed_digest is not None:
+            _revoke_code_family(replayed_digest)
+            # Returning False here makes oauthlib misclassify a concurrent
+            # single-use-code loss as a redirect mismatch. This transition is
+            # a credential replay and must surface as invalid_grant.
+            oauth_request = args[0] if args else kwargs.get("request")
+            raise errors.InvalidGrantError(request=oauth_request)
+        return updated == 1
 
-            family_id = uuid4()
-            _, raw_refresh_token = MCPOAuthRefreshToken.issue(
-                user=record.user,
-                client=record.client,
-                scopes=list(record.scopes),
-                resource=_configured_resource(),
-                family_id=family_id,
-            )
-            access_record, raw_access_token = MCPOAuthAccessToken.issue(
-                user=record.user,
-                client=record.client,
-                scopes=list(record.scopes),
-                resource=_configured_resource(),
-                family_id=family_id,
-            )
-        return _ExchangeResult(
-            token=OAuthToken(
-                access_token=raw_access_token,
-                token_type="Bearer",
-                expires_in=_token_expiry_seconds(access_record.expires_at),
-                scope=" ".join(record.scopes),
-                refresh_token=raw_refresh_token,
-            )
-        )
+    def invalidate_authorization_code(self, client_id, code, request, *args, **kwargs):
+        grant = _grant_for_code(code, application=request.client)
+        if grant is None or grant.consumed_at is None:
+            raise errors.InvalidGrantError(request=request)
 
-    async def load_refresh_token(
-        self,
-        client: OAuthClientInformationFull,
-        refresh_token: str,
-    ) -> SiteHitsRefreshToken | None:
-        return await sync_to_async(
-            self._load_refresh_token,
-            thread_sensitive=True,
-        )(client.client_id, refresh_token)
+    def save_bearer_token(self, token, request, *args, **kwargs):
+        resources = exact_resource_values(_request_resource_values(request))
+        request.resource = resources
+        code_digest = ""
+        if request.grant_type == "authorization_code":
+            code_digest = credential_digest(request.code)
+        elif request.grant_type == "refresh_token":
+            prior = getattr(request, "refresh_token_instance", None)
+            code_digest = getattr(prior, "authorization_code_digest", "")
 
-    @staticmethod
-    def _load_refresh_token(
-        client_id: str | None,
-        raw_token: str,
-    ) -> SiteHitsRefreshToken | None:
-        if not raw_token.startswith("shr_") or len(raw_token) < 24:
-            return None
-        record = (
-            MCPOAuthRefreshToken.objects.select_related("client", "user")
-            .filter(
-                client__client_id=client_id,
-                client__revoked_at__isnull=True,
-                token_digest=MCPAccessToken.digest(raw_token),
-                revoked_at__isnull=True,
-            )
-            .first()
-        )
-        if (
-            record is None
-            or not record.user.is_active
-            or _canonical_resource(record.resource) != _configured_resource()
-        ):
-            return None
-        return _refresh_token_from_record(record, raw_token)
-
-    async def exchange_refresh_token(
-        self,
-        client: OAuthClientInformationFull,
-        refresh_token: SiteHitsRefreshToken,
-        scopes: list[str],
-    ) -> OAuthToken:
-        result = await sync_to_async(
-            self._exchange_refresh_token,
-            thread_sensitive=True,
-        )(client.client_id, refresh_token, scopes)
-        if result.error:
-            raise TokenError(error="invalid_grant", error_description=result.error)
-        if result.token is None:  # pragma: no cover - defensive invariant.
-            raise TokenError(error="invalid_grant", error_description="Token refresh failed")
-        return result.token
-
-    @staticmethod
-    def _exchange_refresh_token(
-        client_id: str | None,
-        refresh_token: SiteHitsRefreshToken,
-        scopes: list[str],
-    ) -> _ExchangeResult:
-        now = timezone.now()
         with transaction.atomic():
-            record = (
-                MCPOAuthRefreshToken.objects.select_for_update()
-                .select_related("client", "user")
-                .filter(
-                    pk=refresh_token.record_id,
-                    client__client_id=client_id,
-                    token_digest=MCPAccessToken.digest(refresh_token.token),
+            from mcp_oauth.models import OAuthRefreshFamily
+
+            grant = None
+            # Authorization-code exchange follows grant -> family lock order.
+            # Refresh rotation already holds the durable family lock from
+            # validation; taking the historical grant lock here would invert
+            # _revoke_code_family's grant -> family order and permit deadlock.
+            if request.grant_type == "authorization_code" and code_digest:
+                Grant = get_grant_model()
+                grant = Grant.objects.select_for_update().filter(
+                    code_digest=code_digest
+                ).first()
+            locked_family = None
+            if request.grant_type == "refresh_token":
+                prior = getattr(request, "refresh_token_instance", None)
+                if prior is None or prior.family_state_id is None:
+                    raise errors.InvalidGrantError(request=request)
+                locked_family = OAuthRefreshFamily.objects.select_for_update().get(
+                    pk=prior.family_state_id
                 )
+                prior = get_refresh_token_model().objects.select_for_update().get(
+                    pk=prior.pk
+                )
+                request.refresh_token_instance = prior
+                family_decision = _evaluate_refresh_rotation(
+                    prior,
+                    locked_family,
+                    request.client,
+                    resources,
+                    request,
+                )
+                if not family_decision.rotation_allowed:
+                    request.refresh_family_decision = family_decision.code.value
+                    locked_family.revoke()
+                    raise errors.InvalidGrantError(request=request)
+                claimed_at = timezone.now()
+                claimed = get_refresh_token_model().objects.filter(
+                    pk=prior.pk,
+                    revoked__isnull=True,
+                ).update(revoked=claimed_at)
+                claim_decision = _capture_refresh_audit_decision(
+                    _refresh_family_policy().evaluate_claim(
+                        claimed_rows=claimed,
+                    )
+                )
+                request.refresh_family_decision = claim_decision.code.value
+                if not claim_decision.rotation_allowed:
+                    locked_family.revoke()
+                    raise errors.InvalidGrantError(request=request)
+                prior.revoked = claimed_at
+            result = super().save_bearer_token(token, request, *args, **kwargs)
+            AccessToken = get_access_token_model()
+            access = AccessToken.objects.select_for_update().get(
+                token_checksum=credential_digest(token["access_token"])
+            )
+            access.token = ""
+            access.expires = timezone.now() + ACCESS_TOKEN_TTL
+            access.resource = resources
+            access.authorization_code_digest = code_digest
+            access.save(
+                update_fields=[
+                    "token",
+                    "expires",
+                    "resource",
+                    "authorization_code_digest",
+                    "updated",
+                ]
+            )
+            raw_refresh = token.get("refresh_token")
+            refresh = None
+            if raw_refresh:
+                RefreshToken = get_refresh_token_model()
+                refresh = (
+                    RefreshToken.objects.select_for_update()
+                    .filter(token_checksum=credential_digest(raw_refresh))
+                    .order_by(F("revoked").desc(nulls_first=True))
+                    .first()
+                )
+                if refresh is None:
+                    raise RuntimeError("OAuth refresh token persistence failed.")
+                if refresh.family_state_id is None:
+                    raise RuntimeError("OAuth refresh family persistence failed.")
+                family_state = OAuthRefreshFamily.objects.select_for_update().get(
+                    pk=refresh.family_state_id
+                )
+                family_decision = _evaluate_refresh_family(
+                    family_state,
+                    resources,
+                )
+                if not family_decision.rotation_allowed:
+                    request.refresh_family_decision = family_decision.code.value
+                    family_state.revoke()
+                    raise errors.InvalidGrantError(request=request)
+                if not family_state.authorization_code_digest and code_digest:
+                    family_state.authorization_code_digest = code_digest
+                    family_state.save(
+                        update_fields=["authorization_code_digest", "updated_at"]
+                    )
+                refresh.token = ""
+                refresh.resource = resources
+                refresh.authorization_code_digest = code_digest
+                refresh.save(
+                    update_fields=[
+                        "token",
+                        "resource",
+                        "authorization_code_digest",
+                        "family_expires_at",
+                        "updated",
+                    ]
+                )
+            if grant is not None and grant.replayed_at is not None:
+                access.revoke()
+                if refresh is not None:
+                    refresh.revoke_family()
+            return result
+
+    def validate_refresh_token(self, refresh_token, client, request, *args, **kwargs):
+        RefreshToken = get_refresh_token_model()
+        try:
+            resources = exact_resource_values(_request_resource_values(request))
+        except (ExactResourceError, ValueError):
+            return False
+        with transaction.atomic():
+            from mcp_oauth.models import OAuthRefreshFamily
+
+            record_hint = (
+                RefreshToken.objects.filter(
+                    token_checksum=credential_digest(refresh_token)
+                )
+                .values("pk", "family_state_id")
+                .first()
+            )
+            if record_hint is None or record_hint["family_state_id"] is None:
+                return False
+            try:
+                family_state = OAuthRefreshFamily.objects.select_for_update().get(
+                    pk=record_hint["family_state_id"]
+                )
+            except OAuthRefreshFamily.DoesNotExist:
+                return False
+            record = (
+                RefreshToken.objects.select_for_update()
+                .filter(pk=record_hint["pk"])
                 .first()
             )
             if record is None:
-                return _ExchangeResult(error="Refresh token is invalid")
-            if record.used_at is not None:
-                _revoke_family(record.family_id, now=now)
-                return _ExchangeResult(
-                    error="Refresh token replay detected; the token family was revoked"
-                )
-            if (
-                record.revoked_at is not None
-                or record.client.revoked_at is not None
-                or record.expires_at <= now
-                or not record.user.is_active
-                or _canonical_resource(record.resource) != _configured_resource()
-            ):
-                return _ExchangeResult(error="Refresh token is invalid or expired")
-            if not set(scopes).issubset(set(record.scopes)):
-                return _ExchangeResult(error="Requested scopes exceed the refresh token grant")
-            try:
-                normalized_scopes = _normalize_scopes(scopes, default=list(record.scopes))
-            except ValueError as exc:
-                return _ExchangeResult(error=str(exc))
-
-            record.used_at = now
-            record.save(update_fields=["used_at"])
-            MCPOAuthAccessToken.objects.filter(
-                family_id=record.family_id,
-                revoked_at__isnull=True,
-            ).update(revoked_at=now)
-            _, raw_refresh_token = MCPOAuthRefreshToken.issue(
-                user=record.user,
-                client=record.client,
-                scopes=normalized_scopes,
-                resource=_configured_resource(),
-                family_id=record.family_id,
+                return False
+            family_decision = _evaluate_refresh_rotation(
+                record,
+                family_state,
+                client,
+                resources,
+                request,
             )
-            access_record, raw_access_token = MCPOAuthAccessToken.issue(
-                user=record.user,
-                client=record.client,
-                scopes=normalized_scopes,
-                resource=_configured_resource(),
-                family_id=record.family_id,
-            )
-        return _ExchangeResult(
-            token=OAuthToken(
-                access_token=raw_access_token,
-                token_type="Bearer",
-                expires_in=_token_expiry_seconds(access_record.expires_at),
-                scope=" ".join(normalized_scopes),
-                refresh_token=raw_refresh_token,
-            )
-        )
+            request.refresh_family_decision = family_decision.code.value
+            if not family_decision.rotation_allowed:
+                family_state.revoke()
+                return False
+        request.user = record.user
+        request.refresh_token = refresh_token
+        request.refresh_token_instance = record
+        request.resource = resources
+        return True
 
-    async def load_access_token(self, token: str) -> SiteHitsAccessToken | None:
-        return await sync_to_async(
-            self._load_access_token,
-            thread_sensitive=True,
-        )(token)
-
-    @staticmethod
-    def _load_access_token(raw_token: str) -> SiteHitsAccessToken | None:
-        if raw_token.startswith("sho_") and len(raw_token) >= 24:
-            record = MCPOAuthAccessToken.authenticate(raw_token)
-            if record is not None:
-                return _oauth_access_token_from_record(record, raw_token)
-        if bool(getattr(settings, "SITEHITS_MCP_ALLOW_LEGACY_TOKENS", False)):
-            legacy_record = MCPAccessToken.authenticate(raw_token)
-            if legacy_record is not None:
-                return _legacy_access_token_from_record(legacy_record, raw_token)
-        return None
-
-    async def revoke_token(
-        self,
-        token: SiteHitsAccessToken | SiteHitsRefreshToken,
-    ) -> None:
-        await sync_to_async(
-            self._revoke_token,
-            thread_sensitive=True,
-        )(token)
-
-    @staticmethod
-    def _revoke_token(token: SiteHitsAccessToken | SiteHitsRefreshToken) -> None:
-        now = timezone.now()
-        if isinstance(token, SiteHitsAccessToken) and token.legacy:
-            MCPAccessToken.objects.filter(
-                pk=token.record_id,
-                revoked_at__isnull=True,
-            ).update(revoked_at=now)
-            return
-        family_id = getattr(token, "family_id", None)
-        if family_id is None:
-            return
-        try:
-            parsed_family_id = UUID(str(family_id))
-        except ValueError:  # pragma: no cover - provider-created values only.
+    def revoke_token(self, token, token_type_hint, request, *args, **kwargs):
+        checksum = credential_digest(token)
+        AccessToken = get_access_token_model()
+        RefreshToken = get_refresh_token_model()
+        application = getattr(request, "client", None)
+        if application is None or not application.is_usable(request):
             return
         with transaction.atomic():
-            _revoke_family(parsed_family_id, now=now)
+            from mcp_oauth.models import OAuthRefreshFamily
 
-
-def _revoke_family(family_id: UUID, *, now) -> None:
-    MCPOAuthRefreshToken.objects.filter(
-        family_id=family_id,
-        revoked_at__isnull=True,
-    ).update(revoked_at=now)
-    MCPOAuthAccessToken.objects.filter(
-        family_id=family_id,
-        revoked_at__isnull=True,
-    ).update(revoked_at=now)
-
-
-def get_authorization_request(
-    request_id: str | UUID,
-) -> MCPOAuthAuthorizationRequest | None:
-    """Return an active request for a Django consent view, or ``None``."""
-
-    try:
-        request_uuid = UUID(str(request_id))
-    except (TypeError, ValueError):
-        return None
-    return (
-        MCPOAuthAuthorizationRequest.objects.select_related("client")
-        .filter(
-            pk=request_uuid,
-            resolved_at__isnull=True,
-            expires_at__gt=timezone.now(),
-            client__revoked_at__isnull=True,
-        )
-        .first()
-    )
-
-
-def resolve_authorization_request(
-    request_id: str | UUID,
-    user: Any,
-    approved: bool,
-) -> str:
-    """Resolve consent once and return only the pre-registered callback URL."""
-
-    try:
-        request_uuid = UUID(str(request_id))
-    except (TypeError, ValueError) as exc:
-        raise ConsentRequestError("Authorization request is invalid") from exc
-    if not getattr(user, "is_authenticated", False) or not getattr(
-        user,
-        "is_active",
-        False,
-    ):
-        raise ConsentRequestError("An active authenticated user is required")
-
-    now = timezone.now()
-    with transaction.atomic():
-        authorization_request = (
-            MCPOAuthAuthorizationRequest.objects.select_for_update()
-            .select_related("client")
-            .filter(pk=request_uuid)
-            .first()
-        )
-        if authorization_request is None or authorization_request.resolved_at is not None:
-            raise ConsentRequestError("Authorization request is unavailable")
-
-        client = _client_from_record(authorization_request.client)
-        try:
-            safe_redirect = client.validate_redirect_uri(
-                AnyUrl(authorization_request.redirect_uri)
+            refresh_hint = (
+                RefreshToken.objects
+                .filter(
+                    token_checksum=checksum,
+                    application=application,
+                )
+                .values("pk", "family_state_id")
+                .first()
             )
-        except (InvalidRedirectUriError, ValueError) as exc:
-            raise ConsentRequestError("The registered callback is no longer valid") from exc
-
-        authorization_request.resolved_at = now
-        authorization_request.save(update_fields=["resolved_at"])
-        state = authorization_request.state or None
-        if authorization_request.client.revoked_at is not None:
-            return construct_redirect_uri(
-                str(safe_redirect),
-                error="unauthorized_client",
-                error_description="OAuth client is no longer active",
-                state=state,
-                iss=settings.SITEHITS_MCP_ISSUER_URL,
+            if refresh_hint is not None:
+                family_state = OAuthRefreshFamily.objects.select_for_update().get(
+                    pk=refresh_hint["family_state_id"]
+                )
+                refresh = RefreshToken.objects.select_for_update().get(
+                    pk=refresh_hint["pk"]
+                )
+                family_state.revoke()
+                refresh.family_revoked_at = family_state.revoked_at
+                return
+            access_hint = (
+                AccessToken.objects
+                .filter(
+                    token_checksum=checksum,
+                    application=application,
+                )
+                .values("pk", "source_refresh_token_id")
+                .first()
             )
-        if authorization_request.expires_at <= now:
-            return construct_redirect_uri(
-                str(safe_redirect),
-                error="access_denied",
-                error_description="Authorization request expired",
-                state=state,
-                iss=settings.SITEHITS_MCP_ISSUER_URL,
+            if access_hint is None:
+                return
+            related_refresh_hint = (
+                RefreshToken.objects.filter(
+                    Q(access_token_id=access_hint["pk"])
+                    | Q(pk=access_hint["source_refresh_token_id"])
+                )
+                .filter(application=application)
+                .values("pk", "family_state_id")
+                .first()
             )
-        if not approved:
-            return construct_redirect_uri(
-                str(safe_redirect),
-                error="access_denied",
-                error_description="The user denied the authorization request",
-                state=state,
-                iss=settings.SITEHITS_MCP_ISSUER_URL,
-            )
-
-        _, raw_code = MCPOAuthAuthorizationCode.issue(
-            authorization_request=authorization_request,
-            user=user,
-        )
-        return construct_redirect_uri(
-            str(safe_redirect),
-            code=raw_code,
-            state=state,
-            iss=settings.SITEHITS_MCP_ISSUER_URL,
-        )
-
-
-oauth_provider = DjangoOAuthProvider()
+            if related_refresh_hint is not None:
+                family_state = OAuthRefreshFamily.objects.select_for_update().get(
+                    pk=related_refresh_hint["family_state_id"]
+                )
+                family_state.revoke()
+            else:
+                access = AccessToken.objects.select_for_update().get(
+                    pk=access_hint["pk"]
+                )
+                access.revoke()

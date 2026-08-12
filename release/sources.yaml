@@ -11,6 +11,17 @@
       "digest_algorithm": "sha256",
       "consumer_resolution": "Read the annotated tag payload as the descriptor, verify that its git_commit equals the tag target commit, verify Contract and vector digests from that target, then optionally materialize the payload at descriptor_path. Resolve downstream inputs by digest rather than a branch path."
     },
+    "mcp_server": {
+      "authoritative_store": "github_release_asset",
+      "immutable_ref_pattern": "sitehits-mcp-v{server_version}",
+      "descriptor_path": "release/mcp-release.json",
+      "descriptor_schema_path": "release/mcp-release.schema.json",
+      "runtime_artifact_store": "ghcr_oci_digest",
+      "runtime_artifact_ref_pattern": "ghcr.io/onurmatik/site-hits@{image_digest}",
+      "acceptance_evidence_store": "github_release_asset",
+      "digest_algorithm": "sha256",
+      "consumer_resolution": "Resolve the MCP descriptor from the immutable GitHub Release, verify its digest, pinned Agent Contract descriptor and Contract digests, GHCR image digest, canonical registry digest, client compatibility matrix digest, and immutable ChatGPT-plus-Codex-plus-Claude-Code smoke evidence before promotion."
+    },
     "standalone_skill": {
       "authoritative_store": "github_release_asset",
       "immutable_ref_pattern": "sitehits-skill-v{skill_version}",

@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "matrix_version": "1.0.0",
+  "registration_policy": "dcr-only",
+  "clients": [
+    {
+      "client": "chatgpt",
+      "display_name": "ChatGPT",
+      "surface": "web",
+      "tier": "primary",
+      "transport": "streamable-http",
+      "registration_method": "dcr",
+      "callback_profile": "exact-https",
+      "support_status": "supported",
+      "release_acceptance": "required"
+    },
+    {
+      "client": "codex",
+      "display_name": "Codex",
+      "surface": "desktop-cli",
+      "tier": "primary",
+      "transport": "streamable-http",
+      "registration_method": "dcr",
+      "callback_profile": "ip-loopback-dynamic-port",
+      "support_status": "supported",
+      "release_acceptance": "required"
+    },
+    {
+      "client": "claude-code",
+      "display_name": "Claude Code",
+      "surface": "cli",
+      "tier": "cross-agent",
+      "transport": "streamable-http",
+      "registration_method": "dcr",
+      "callback_profile": "localhost-loopback-dynamic-port",
+      "support_status": "supported",
+      "release_acceptance": "required"
+    },
+    {
+      "client": "mcp-inspector",
+      "display_name": "MCP Inspector",
+      "surface": "diagnostic",
+      "tier": "diagnostic",
+      "transport": "streamable-http",
+      "registration_method": "dcr",
+      "callback_profile": "exact-https-or-ip-loopback",
+      "support_status": "diagnostic",
+      "release_acceptance": "diagnostic"
+    }
+  ]
+}

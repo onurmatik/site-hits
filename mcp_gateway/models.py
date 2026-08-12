@@ -1,12 +1,13 @@
-import hashlib
-import hmac
-import secrets
-from datetime import timedelta
+"""Historical provisional metadata retained only for bounded Stage 1 cleanup.
+
+No model in this module can issue or authenticate a credential. The active OAuth
+provider lives in ``mcp_oauth`` and the runtime verifier accepts only its records.
+"""
+
 from uuid import uuid4
 
 from django.conf import settings
 from django.db import models
-from django.utils import timezone
 
 
 class MCPAccessToken(models.Model):
@@ -28,45 +29,6 @@ class MCPAccessToken(models.Model):
 
     def __str__(self):
         return f"{self.user}: {self.name} ({self.prefix}…)"
-
-    @staticmethod
-    def digest(raw_token):
-        return hmac.new(
-            settings.SITEHITS_MCP_TOKEN_SECRET.encode("utf-8"),
-            raw_token.encode("utf-8"),
-            hashlib.sha256,
-        ).hexdigest()
-
-    @classmethod
-    def issue(cls, *, user, name="MCP client", expires_at=None):
-        raw_token = f"shm_{secrets.token_urlsafe(32)}"
-        token = cls.objects.create(
-            user=user,
-            name=name,
-            prefix=raw_token[:12],
-            token_digest=cls.digest(raw_token),
-            expires_at=expires_at,
-        )
-        return token, raw_token
-
-    @classmethod
-    def authenticate(cls, raw_token):
-        if not raw_token.startswith("shm_") or len(raw_token) < 24:
-            return None
-        token = (
-            cls.objects.select_related("user")
-            .filter(token_digest=cls.digest(raw_token), revoked_at__isnull=True)
-            .first()
-        )
-        now = timezone.now()
-        if token is None or not token.user.is_active:
-            return None
-        if token.expires_at and token.expires_at <= now:
-            return None
-        if token.last_used_at is None or token.last_used_at < now - timedelta(minutes=5):
-            cls.objects.filter(pk=token.pk).update(last_used_at=now)
-            token.last_used_at = now
-        return token
 
 
 class MCPOAuthClient(models.Model):
@@ -120,32 +82,6 @@ class MCPOAuthAuthorizationCode(models.Model):
     class Meta:
         ordering = ["-created_at"]  # noqa: RUF012 - Django migration state uses a list.
 
-    @classmethod
-    def issue(cls, *, authorization_request, user):
-        raw_code = f"shc_{secrets.token_urlsafe(32)}"
-        code = cls.objects.create(
-            user=user,
-            client=authorization_request.client,
-            prefix=raw_code[:12],
-            code_digest=MCPAccessToken.digest(raw_code),
-            redirect_uri=authorization_request.redirect_uri,
-            redirect_uri_provided_explicitly=(
-                authorization_request.redirect_uri_provided_explicitly
-            ),
-            scopes=authorization_request.scopes,
-            resource=authorization_request.resource,
-            code_challenge=authorization_request.code_challenge,
-            expires_at=timezone.now()
-            + timedelta(
-                seconds=getattr(
-                    settings,
-                    "SITEHITS_MCP_AUTHORIZATION_CODE_TTL_SECONDS",
-                    300,
-                )
-            ),
-        )
-        return code, raw_code
-
     def __str__(self):
         return f"{self.client}: {self.prefix}…"
 
@@ -170,28 +106,6 @@ class MCPOAuthRefreshToken(models.Model):
     class Meta:
         ordering = ["-created_at"]  # noqa: RUF012 - Django migration state uses a list.
 
-    @classmethod
-    def issue(cls, *, user, client, scopes, resource, family_id=None):
-        raw_token = f"shr_{secrets.token_urlsafe(32)}"
-        token = cls.objects.create(
-            user=user,
-            client=client,
-            prefix=raw_token[:12],
-            token_digest=MCPAccessToken.digest(raw_token),
-            scopes=scopes,
-            resource=resource,
-            family_id=family_id or uuid4(),
-            expires_at=timezone.now()
-            + timedelta(
-                seconds=getattr(
-                    settings,
-                    "SITEHITS_MCP_REFRESH_TOKEN_TTL_SECONDS",
-                    2_592_000,
-                )
-            ),
-        )
-        return token, raw_token
-
     def __str__(self):
         return f"{self.client}: {self.prefix}…"
 
@@ -215,51 +129,6 @@ class MCPOAuthAccessToken(models.Model):
 
     class Meta:
         ordering = ["-created_at"]  # noqa: RUF012 - Django migration state uses a list.
-
-    @classmethod
-    def issue(cls, *, user, client, scopes, resource, family_id):
-        raw_token = f"sho_{secrets.token_urlsafe(32)}"
-        token = cls.objects.create(
-            user=user,
-            client=client,
-            prefix=raw_token[:12],
-            token_digest=MCPAccessToken.digest(raw_token),
-            scopes=scopes,
-            resource=resource,
-            family_id=family_id,
-            expires_at=timezone.now()
-            + timedelta(
-                seconds=getattr(
-                    settings,
-                    "SITEHITS_MCP_ACCESS_TOKEN_TTL_SECONDS",
-                    3600,
-                )
-            ),
-        )
-        return token, raw_token
-
-    @classmethod
-    def authenticate(cls, raw_token):
-        if not raw_token.startswith("sho_") or len(raw_token) < 24:
-            return None
-        token = (
-            cls.objects.select_related("user", "client")
-            .filter(
-                token_digest=MCPAccessToken.digest(raw_token),
-                revoked_at__isnull=True,
-                client__revoked_at__isnull=True,
-            )
-            .first()
-        )
-        now = timezone.now()
-        if token is None or not token.user.is_active:
-            return None
-        if token.expires_at <= now or token.resource != settings.SITEHITS_MCP_RESOURCE_URL:
-            return None
-        if token.last_used_at is None or token.last_used_at < now - timedelta(minutes=5):
-            cls.objects.filter(pk=token.pk).update(last_used_at=now)
-            token.last_used_at = now
-        return token
 
     def __str__(self):
         return f"{self.client}: {self.prefix}…"

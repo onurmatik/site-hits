@@ -3,9 +3,11 @@ import re
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
-from agent_runtime.contract import contract_version
+from agent_runtime.contract import contract_version, pinned_contract_identity
 
-SERVER_VERSION = "0.2.0"
+from .registry import build_deployment_registry, registry_sha256
+from .release_identity import SERVER_VERSION
+
 AGENT_CONTRACT_VERSION = contract_version()
 SKILL_VERSION = "1.0.0"
 MINIMUM_SKILL_VERSION = "1.0.0"
@@ -44,9 +46,14 @@ def validate_version_contract():
 
 
 def integration_manifest():
+    contract_identity = pinned_contract_identity()
     return {
         "server_version": SERVER_VERSION,
         "agent_contract_version": AGENT_CONTRACT_VERSION,
+        "supported_agent_contract_versions": list(contract_identity.supported_versions),
+        "agent_contract_descriptor_sha256": contract_identity.descriptor_sha256,
+        "agent_contract_sha256": contract_identity.contract_sha256,
+        "tool_registry_sha256": f"sha256:{registry_sha256(build_deployment_registry())}",
         "skill_version": SKILL_VERSION,
         "minimum_skill_version": MINIMUM_SKILL_VERSION,
         "plugin_version": PLUGIN_VERSION,

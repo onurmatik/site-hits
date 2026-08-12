@@ -39,6 +39,9 @@ Never publish a server and skill that each require the other new version; that c
 
 ## Breaking release order
 
+This compatibility-window policy begins with the first public release. The current pre-public
+Stage 1 clean cut has no external consumer and follows the MCP/OAuth ADR instead.
+
 1. Add a parallel contract, tool name, or endpoint before removing the old one.
 2. Run old and new contracts together for a documented compatibility window.
 3. Deploy the server and verify both paths.
@@ -48,7 +51,7 @@ Never publish a server and skill that each require the other new version; that c
 
 ## Deprecation and rollback
 
-Publish the affected tools, scopes, replacement path, and removal date when deprecating behavior. Keep deprecated behavior available until that date and until adoption evidence supports removal. OAuth discovery is the primary plugin authentication path from plugin `0.2.0`; do not reintroduce static bearer-token configuration in distributed manifests. If the server temporarily retains legacy bearer tokens, treat them as a migration fallback and remove them only through the same deprecation process.
+Publish the affected tools, scopes, replacement path, and removal date when deprecating behavior. Keep deprecated behavior available until that date and until adoption evidence supports removal. OAuth discovery is the primary plugin authentication path from plugin `0.2.0`; do not reintroduce static bearer-token configuration in distributed manifests.
 
 Roll back the plugin or skill before rolling back a server capability they depend on. The server should remain backward-compatible throughout rollback. A skill must never download or overwrite itself; plugin updates and explicit standalone update requests remain the only supported update paths.
 

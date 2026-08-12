@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sitehits.io/schemas/mcp-release-1.json",
+  "title": "SiteHits MCP release descriptor",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "server_version",
+    "agent_contract",
+    "git_commit",
+    "image_digest",
+    "tool_registry_sha256",
+    "client_compatibility_sha256",
+    "oauth",
+    "client_acceptance",
+    "smoke"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "server_version": {"$ref": "#/$defs/semver"},
+    "agent_contract": {
+      "type": "object",
+      "required": [
+        "agent_contract_version",
+        "descriptor_sha256",
+        "contract_sha256",
+        "supported_versions"
+      ],
+      "properties": {
+        "agent_contract_version": {"$ref": "#/$defs/semver"},
+        "descriptor_sha256": {"$ref": "#/$defs/digest"},
+        "contract_sha256": {"$ref": "#/$defs/digest"},
+        "supported_versions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/semver"},
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "git_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "image_digest": {"$ref": "#/$defs/digest"},
+    "tool_registry_sha256": {"$ref": "#/$defs/digest"},
+    "client_compatibility_sha256": {"$ref": "#/$defs/digest"},
+    "oauth": {
+      "type": "object",
+      "required": ["issuer", "resource"],
+      "properties": {
+        "issuer": {"const": "https://sitehits.io"},
+        "resource": {"const": "https://sitehits.io/mcp"}
+      },
+      "additionalProperties": false
+    },
+    "client_acceptance": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "required": [
+          "client",
+          "surface",
+          "tier",
+          "tested_version",
+          "transport",
+          "registration_method",
+          "callback_profile",
+          "status",
+          "tested_at",
+          "evidence_uri",
+          "evidence_sha256"
+        ],
+        "properties": {
+          "client": {
+            "enum": ["chatgpt", "codex", "claude-code", "mcp-inspector"]
+          },
+          "surface": {"type": "string", "minLength": 1},
+          "tier": {"enum": ["primary", "cross-agent", "diagnostic"]},
+          "tested_version": {"type": "string", "minLength": 1},
+          "transport": {"const": "streamable-http"},
+          "registration_method": {"const": "dcr"},
+          "callback_profile": {"type": "string", "minLength": 1},
+          "status": {"enum": ["passed", "diagnostic-passed"]},
+          "tested_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "Z$"
+          },
+          "evidence_uri": {
+            "type": "string",
+            "pattern": "^https://github\\.com/onurmatik/site-hits/releases/download/[^/]+/[^/]+$"
+          },
+          "evidence_sha256": {"$ref": "#/$defs/digest"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "smoke": {
+      "type": "object",
+      "required": ["client", "tested_at", "evidence_uri", "evidence_sha256"],
+      "properties": {
+        "client": {
+          "type": "string",
+          "pattern": "^ChatGPT .+; Codex .+; Claude Code .+$"
+        },
+        "tested_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "evidence_uri": {
+          "type": "string",
+          "pattern": "^https://github\\.com/onurmatik/site-hits/releases/download/[^/]+/[^/]+$"
+        },
+        "evidence_sha256": {"$ref": "#/$defs/digest"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

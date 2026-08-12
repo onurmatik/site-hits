@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.db import close_old_connections
+from django.db import close_old_connections, connections
 from django.utils import timezone
 from jsonschema import Draft202012Validator, FormatChecker
 
@@ -280,7 +280,7 @@ def test_site_capacity_concurrency_allows_exactly_one_creation(agent_user):
         except ApplicationError as exc:
             return exc.code
         finally:
-            close_old_connections()
+            connections.close_all()
         return "success"
 
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -802,7 +802,7 @@ def test_all_public_tools_return_exact_contract_outputs_and_audit(agent_user):
             "skill_status": "unknown",
             "upgrade_required": False,
             "update_available": False,
-            "skill_update_url": "https://sitehits.io/mcp-docs/#standalone-skill-update",
+            "skill_update_url": "https://sitehits.io/INSTALL.md",
         },
     )
     execution_order = (

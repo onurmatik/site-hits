@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 from io import BytesIO
 from pathlib import Path
@@ -32,13 +33,32 @@ DEPLOY_HOST = os.environ.get("DEPLOY_HOST", "46.225.14.95")
 KEY_FILENAME = os.environ.get("KEY_FILENAME", "hetzner-stage")
 DEPLOY_USER = os.environ.get("DEPLOY_USER", "root")
 APP_USER = os.environ.get("APP_USER", "ubuntu")
+RELEASE_GIT_COMMIT = os.environ.get("SITEHITS_MCP_GIT_COMMIT", "").strip()
 
 PROJECT_DIR = f"/srv/apps/{PROJECT_NAME}"
-VENV_DIR = f"{PROJECT_DIR}/venv"
 REPO_URL = f"https://github.com/{GITHUB_REPO}.git"
 GEOIP_DB_PATH = "/var/lib/GeoIP/GeoLite2-City.mmdb"
 GEOIP_CONFIG_PATH = "/etc/GeoIP.conf"
+SYSTEMD_UNITS = (
+    "sitehits-web.service",
+    "sitehits-mcp.service",
+    "sitehits-mcp-cleanup.service",
+    "sitehits-mcp-cleanup.timer",
+    "sitehits-mcp-cleanup-health.service",
+    "sitehits-mcp-cleanup-health.timer",
+    "sitehits-mcp-alert@.service",
+)
+NGINX_MCP_SNIPPET = "/etc/nginx/snippets/sitehits-mcp.locations.conf"
 RUNTIME_ENV_KEYS = (
+    "DATABASE_URL",
+    "ALLOWED_HOSTS",
+    "CSRF_TRUSTED_ORIGINS",
+    "SITEHITS_BASE_URL",
+    "SITEHITS_HASH_SECRET",
+    "SITEHITS_TIME_ZONE",
+    "SITEHITS_TRUST_PROXY_HEADERS",
+    "SITEHITS_TRUSTED_PROXY_IPS",
+    "SITEHITS_GEOIP_DB_PATH",
     "OPENAI_API_KEY",
     "SITEHITS_GOAL_PLANNING_MODEL",
     "SITEHITS_GOAL_PLANNING_TIMEOUT_SECONDS",
@@ -48,12 +68,11 @@ RUNTIME_ENV_KEYS = (
     "SITEHITS_MCP_RESOURCE_URL",
     "SITEHITS_MCP_DOCUMENTATION_URL",
     "SITEHITS_MCP_SKILL_UPDATE_URL",
-    "SITEHITS_MCP_ALLOW_LEGACY_TOKENS",
+    "SITEHITS_MCP_IMAGE_REF",
     "SITEHITS_MCP_CORS_ORIGINS",
-    "SITEHITS_MCP_ACCESS_TOKEN_TTL_SECONDS",
-    "SITEHITS_MCP_REFRESH_TOKEN_TTL_SECONDS",
-    "SITEHITS_MCP_AUTHORIZATION_CODE_TTL_SECONDS",
-    "SITEHITS_MCP_AUTHORIZATION_REQUEST_TTL_SECONDS",
+    "SITEHITS_MCP_ALERT_WEBHOOK_URL",
+    "WEB_CONCURRENCY",
+    "MCP_WEB_CONCURRENCY",
     "GOOGLE_OAUTH_CLIENT_ID",
     "GOOGLE_OAUTH_CLIENT_SECRET",
     "DJANGO_EMAIL_BACKEND",
@@ -93,7 +112,6 @@ umask 077
   printf 'SITEHITS_BASE_URL=https://{DOMAIN}\\n'
   printf 'SITEHITS_HASH_SECRET=%s\\n' "$(openssl rand -hex 48)"
   printf 'SITEHITS_MCP_TOKEN_SECRET=%s\\n' "$(openssl rand -hex 48)"
-  printf 'SITEHITS_MCP_ALLOW_LEGACY_TOKENS=false\\n'
   printf 'SITEHITS_GEOIP_DB_PATH={GEOIP_DB_PATH}\\n'
   printf 'SITEHITS_TIME_ZONE=Europe/Istanbul\\n'
   printf 'SITEHITS_TRUST_PROXY_HEADERS=true\\n'
@@ -106,9 +124,6 @@ umask 077
     script = f"""
 if ! grep -q '^SITEHITS_MCP_TOKEN_SECRET=' .env; then
   printf 'SITEHITS_MCP_TOKEN_SECRET=%s\\n' "$(openssl rand -hex 48)" >> .env
-fi
-if ! grep -q '^SITEHITS_MCP_ALLOW_LEGACY_TOKENS=' .env; then
-  printf 'SITEHITS_MCP_ALLOW_LEGACY_TOKENS=false\\n' >> .env
 fi
 if grep -q '^SITEHITS_GEOIP_DB_PATH=' .env; then
   sed -i 's|^SITEHITS_GEOIP_DB_PATH=.*$|SITEHITS_GEOIP_DB_PATH={GEOIP_DB_PATH}|' .env
@@ -147,6 +162,66 @@ def sync_runtime_env(connection: Connection) -> None:
     finally:
         connection.run(f"rm -f {quote(temporary_path)}", warn=True, hide=True)
         app_run(connection, f"rm -f {quote(Path(staged_path).name)}", warn=True)
+
+
+def install_stage1_topology(connection: Connection) -> None:
+    """Install the digest-pinned Stage 1 process topology without mutable checkout runtime."""
+
+    if connection.run("command -v docker", warn=True, hide=True).failed:
+        raise RuntimeError("Docker is required for the immutable GHCR Stage 1 runtime.")
+    app_run(
+        connection,
+        "set -a && . ./.env && set +a && deploy/validate-image-ref.sh",
+    )
+    app_run(
+        connection,
+        "set -a && . ./.env && set +a && "
+        "python3 deploy/send-mcp-alert.py --check",
+    )
+    for unit in SYSTEMD_UNITS:
+        source = f"{PROJECT_DIR}/deploy/systemd/{unit}"
+        destination = f"/etc/systemd/system/{unit}"
+        connection.sudo(f"install -o root -g root -m 644 {quote(source)} {quote(destination)}")
+    connection.sudo(
+        "install -o root -g root -m 644 "
+        f"{quote(PROJECT_DIR + '/deploy/nginx/sitehits-mcp.locations.conf')} "
+        f"{quote(NGINX_MCP_SNIPPET)}"
+    )
+    connection.sudo("systemctl daemon-reload")
+    if connection.sudo(
+        "nginx -T 2>/dev/null | grep -Fq 'location = /mcp {'",
+        warn=True,
+        hide=True,
+    ).failed:
+        raise RuntimeError(
+            f"Include {NGINX_MCP_SNIPPET} in the canonical TLS server before deployment."
+        )
+    connection.sudo("nginx -t")
+    connection.sudo("systemctl reload nginx")
+    connection.sudo(
+        f"systemctl disable --now app@{PROJECT_NAME}.socket app@{PROJECT_NAME}.service",
+        warn=True,
+    )
+    # A persistent health timer can fire immediately on an older host. Keep
+    # both timers stopped until the new schema is installed and a successful
+    # cleanup run has seeded the durable health record.
+    connection.sudo(
+        "systemctl disable --now sitehits-mcp-cleanup.timer "
+        "sitehits-mcp-cleanup-health.timer",
+        warn=True,
+    )
+    connection.sudo("systemctl enable sitehits-web.service sitehits-mcp.service")
+    # The clean-cut migration adds enforced refresh-family bindings. Stop both
+    # request paths before the web unit applies migrations, then start the exact
+    # same digest for web and MCP.
+    connection.sudo("systemctl stop sitehits-mcp.service sitehits-web.service", warn=True)
+    connection.sudo("systemctl start sitehits-web.service")
+    connection.sudo("systemctl start sitehits-mcp-cleanup.service")
+    connection.sudo("systemctl start sitehits-mcp.service")
+    connection.sudo(
+        "systemctl enable --now sitehits-mcp-cleanup.timer "
+        "sitehits-mcp-cleanup-health.timer"
+    )
 
 
 def ensure_geoip_database(connection: Connection) -> None:
@@ -204,7 +279,11 @@ def ensure_geoip_database(connection: Connection) -> None:
 
 @task
 def deploy(_context):
-    """Deploy SiteHits from GitHub to hetzner-stage."""
+    """Deploy one immutable SiteHits source commit to hetzner-stage."""
+    if not re.fullmatch(r"[0-9a-f]{40}", RELEASE_GIT_COMMIT):
+        raise RuntimeError(
+            "SITEHITS_MCP_GIT_COMMIT must be the release's full lowercase commit SHA."
+        )
     connection = Connection(
         host=DEPLOY_HOST,
         user=DEPLOY_USER,
@@ -217,9 +296,7 @@ def deploy(_context):
     connection.run(f"chown {quote(APP_USER)}:{quote(APP_USER)} {quote(PROJECT_DIR)}")
 
     if connection.run(f"test -d {quote(PROJECT_DIR + '/.git')}", warn=True, hide=True).ok:
-        app_run(connection, "git fetch origin main --prune")
-        app_run(connection, "git checkout main")
-        app_run(connection, "git reset --hard origin/main")
+        app_run(connection, "git fetch origin --tags --prune")
     else:
         is_empty = connection.run(
             f'test -z "$(find {quote(PROJECT_DIR)} -mindepth 1 -maxdepth 1 -print -quit)"',
@@ -232,27 +309,21 @@ def deploy(_context):
             f"git clone {quote(REPO_URL)} {quote(PROJECT_DIR)}",
             user=APP_USER,
         )
+        app_run(connection, "git fetch origin --tags --prune")
+
+    commit_object = quote(f"{RELEASE_GIT_COMMIT}^{{commit}}")
+    app_run(connection, f"git cat-file -e {commit_object}")
+    app_run(connection, f"git checkout --detach {quote(RELEASE_GIT_COMMIT)}")
+    app_run(
+        connection,
+        f"test \"$(git rev-parse HEAD)\" = {quote(RELEASE_GIT_COMMIT)}",
+    )
 
     ensure_geoip_database(connection)
     ensure_runtime_env(connection)
     sync_runtime_env(connection)
 
-    if connection.run(f"test -x {quote(VENV_DIR + '/bin/python')}", warn=True, hide=True).failed:
-        app_run(connection, f"python3 -m venv {quote(VENV_DIR)}")
-
-    app_run(connection, f"{quote(VENV_DIR + '/bin/pip')} install --upgrade pip")
-    app_run(connection, f"{quote(VENV_DIR + '/bin/pip')} install -r requirements.txt")
-    app_run(connection, "npm ci")
-    app_run(connection, "npm run build")
-    app_run(connection, f"{quote(VENV_DIR + '/bin/python')} manage.py collectstatic --noinput")
-    app_run(connection, f"{quote(VENV_DIR + '/bin/python')} manage.py migrate --noinput")
-    app_run(connection, f"{quote(VENV_DIR + '/bin/python')} manage.py check --deploy")
-
-    connection.sudo(
-        f"systemctl reset-failed app@{PROJECT_NAME}.service app@{PROJECT_NAME}.socket",
-        warn=True,
-    )
-    connection.sudo(f"systemctl restart app@{PROJECT_NAME}.socket", warn=True)
+    install_stage1_topology(connection)
 
 
 ns = Collection(deploy)

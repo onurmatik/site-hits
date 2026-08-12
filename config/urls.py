@@ -13,13 +13,52 @@ from dashboard.views import (
     site_widget,
     start_onboarding,
 )
-from mcp_gateway.views import agent_manifest, mcp_documentation, oauth_consent
+from mcp_gateway.views import (
+    SiteHitsAuthorizationView,
+    SiteHitsDynamicClientRegistrationView,
+    SiteHitsRevokeTokenView,
+    SiteHitsTokenView,
+    agent_manifest,
+    mcp_documentation,
+    oauth_authorization_server_metadata,
+    oauth_protected_resource_metadata,
+)
 
 urlpatterns = [
     path("", home, name="home"),
     path("agent-manifest.json", agent_manifest, name="agent-manifest"),
     path("mcp-docs/", mcp_documentation, name="mcp-docs"),
-    path("oauth/consent/", oauth_consent, name="mcp-oauth-consent"),
+    path(
+        ".well-known/oauth-authorization-server",
+        oauth_authorization_server_metadata,
+        name="mcp-oauth-authorization-server-metadata",
+    ),
+    path(
+        ".well-known/oauth-protected-resource",
+        oauth_protected_resource_metadata,
+        name="mcp-oauth-protected-resource-metadata-base",
+    ),
+    path(
+        ".well-known/oauth-protected-resource/mcp",
+        oauth_protected_resource_metadata,
+        name="mcp-oauth-protected-resource-metadata",
+    ),
+    path(
+        "oauth/register/",
+        SiteHitsDynamicClientRegistrationView.as_view(),
+        name="mcp-oauth-register",
+    ),
+    path(
+        "oauth/authorize/",
+        SiteHitsAuthorizationView.as_view(),
+        name="mcp-oauth-authorize",
+    ),
+    path("oauth/token/", SiteHitsTokenView.as_view(), name="mcp-oauth-token"),
+    path(
+        "oauth/revoke/",
+        SiteHitsRevokeTokenView.as_view(),
+        name="mcp-oauth-revoke",
+    ),
     path("start/", start_onboarding, name="start-onboarding"),
     path("onboarding/", onboarding, name="onboarding"),
     path(

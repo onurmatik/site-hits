@@ -1,5 +1,6 @@
 """Canonical Agent Contract access for the transport-neutral runtime."""
 
+import hashlib
 import json
 from dataclasses import dataclass
 from functools import cache, lru_cache
@@ -10,9 +11,21 @@ from django.conf import settings
 from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import ValidationError as JSONSchemaValidationError
 
+from agent_contract_identity import (
+    PINNED_AGENT_CONTRACT_DESCRIPTOR_SHA256,
+    PINNED_AGENT_CONTRACT_SHA256,
+    SUPPORTED_AGENT_CONTRACT_VERSIONS,
+)
+
 from .errors import APPLICATION_ERROR_CODES, invalid_input
 
-SUPPORTED_AGENT_CONTRACT_VERSION = "1.0.0"
+
+@dataclass(frozen=True, slots=True)
+class PinnedContractIdentity:
+    version: str
+    contract_sha256: str
+    descriptor_sha256: str
+    supported_versions: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,15 +44,62 @@ class ToolContract:
     output_schema: dict[str, Any]
 
 
+def _read_json_object(path: Path, *, label: str) -> tuple[dict[str, Any], bytes]:
+    try:
+        raw = path.read_bytes()
+        value = json.loads(raw)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"The {label} could not be loaded.") from exc
+    if not isinstance(value, dict):
+        raise RuntimeError(f"The {label} must be a JSON object.")
+    return value, raw
+
+
+@lru_cache(maxsize=1)
+def pinned_contract_identity() -> PinnedContractIdentity:
+    """Verify and return the immutable Stage 0 Contract release identity."""
+
+    base_dir = Path(settings.BASE_DIR)
+    contract_path = base_dir / "agent" / "contract.yaml"
+    descriptor_path = base_dir / "release" / "contract-release.json"
+    contract, contract_bytes = _read_json_object(
+        contract_path,
+        label="canonical Agent Contract",
+    )
+    descriptor, descriptor_bytes = _read_json_object(
+        descriptor_path,
+        label="Agent Contract release descriptor",
+    )
+    version = contract.get("agent_contract_version")
+    if version not in SUPPORTED_AGENT_CONTRACT_VERSIONS:
+        raise RuntimeError("The Agent Contract version is not supported by this runtime.")
+    if descriptor.get("agent_contract_version") != version:
+        raise RuntimeError("The Agent Contract and release descriptor versions differ.")
+    contract_sha256 = hashlib.sha256(contract_bytes).hexdigest()
+    descriptor_sha256 = hashlib.sha256(descriptor_bytes).hexdigest()
+    if descriptor_sha256 != PINNED_AGENT_CONTRACT_DESCRIPTOR_SHA256:
+        raise RuntimeError("The Agent Contract release descriptor is not the pinned artifact.")
+    if contract_sha256 != PINNED_AGENT_CONTRACT_SHA256:
+        raise RuntimeError("The Agent Contract is not the pinned release content.")
+    if descriptor.get("contract_sha256") != contract_sha256:
+        raise RuntimeError("The Agent Contract does not match its immutable release descriptor.")
+    return PinnedContractIdentity(
+        version=str(version),
+        contract_sha256=f"sha256:{contract_sha256}",
+        descriptor_sha256=f"sha256:{descriptor_sha256}",
+        supported_versions=SUPPORTED_AGENT_CONTRACT_VERSIONS,
+    )
+
+
 @lru_cache(maxsize=1)
 def load_contract() -> dict[str, Any]:
     path = Path(settings.BASE_DIR) / "agent" / "contract.yaml"
-    try:
-        contract = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError("The canonical Agent Contract could not be loaded.") from exc
-    if contract.get("agent_contract_version") != SUPPORTED_AGENT_CONTRACT_VERSION:
-        raise RuntimeError("The Agent Contract version is not supported by this runtime.")
+    contract, raw = _read_json_object(path, label="canonical Agent Contract")
+    identity = pinned_contract_identity()
+    if f"sha256:{hashlib.sha256(raw).hexdigest()}" != identity.contract_sha256:
+        raise RuntimeError("The loaded Agent Contract differs from its pinned content.")
+    if contract.get("agent_contract_version") != identity.version:
+        raise RuntimeError("The loaded Agent Contract differs from its pinned identity.")
     schema_path = path.with_name("contract.schema.json")
     try:
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
@@ -141,3 +201,4 @@ def clear_contract_caches() -> None:
 
     get_tool_contract.cache_clear()
     load_contract.cache_clear()
+    pinned_contract_identity.cache_clear()

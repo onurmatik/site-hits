@@ -1,5 +1,8 @@
+import json
 import os
+from ipaddress import ip_address
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
@@ -15,6 +18,71 @@ def env_value(*names, default=""):
         if value is not None:
             return value
     return default
+
+
+def env_list(name, *, default=""):
+    return [item.strip() for item in os.environ.get(name, default).split(",") if item.strip()]
+
+
+def validate_service_url(name, value, *, path):
+    """Validate a configured public identity without rewriting a single byte."""
+
+    try:
+        parsed = urlsplit(value)
+        _ = parsed.port
+    except ValueError as exc:
+        raise ImproperlyConfigured(f"{name} must be a valid absolute URL.") from exc
+    allowed_schemes = {"http", "https"} if DEBUG else {"https"}
+    if parsed.scheme not in allowed_schemes or not parsed.hostname:
+        requirement = "HTTP(S)" if DEBUG else "HTTPS"
+        raise ImproperlyConfigured(f"{name} must be an absolute {requirement} URL.")
+    if parsed.username is not None or parsed.password is not None:
+        raise ImproperlyConfigured(f"{name} must not contain userinfo.")
+    if parsed.query or parsed.fragment:
+        raise ImproperlyConfigured(f"{name} must not contain a query or fragment.")
+    if parsed.path != path or value.endswith("/"):
+        expected = path or "an origin without a path or trailing slash"
+        raise ImproperlyConfigured(f"{name} must use {expected} exactly.")
+    if parsed.scheme != parsed.scheme.lower() or parsed.netloc != parsed.netloc.lower():
+        raise ImproperlyConfigured(f"{name} scheme and authority must be lowercase.")
+    return value
+
+
+def url_origin(value):
+    parsed = urlsplit(value)
+    return parsed.scheme, parsed.hostname, parsed.port
+
+
+def validate_cors_origins(origins):
+    if not origins:
+        raise ImproperlyConfigured("SITEHITS_MCP_CORS_ORIGINS must not be empty.")
+    for origin in origins:
+        if origin == "*":
+            if DEBUG:
+                continue
+            raise ImproperlyConfigured(
+                "SITEHITS_MCP_CORS_ORIGINS must be an explicit production allowlist."
+            )
+        try:
+            parsed = urlsplit(origin)
+            _ = parsed.port
+        except ValueError as exc:
+            raise ImproperlyConfigured(
+                "SITEHITS_MCP_CORS_ORIGINS contains an invalid origin."
+            ) from exc
+        allowed_schemes = {"http", "https"} if DEBUG else {"https"}
+        if (
+            parsed.scheme not in allowed_schemes
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ImproperlyConfigured(
+                "SITEHITS_MCP_CORS_ORIGINS entries must be exact origins."
+            )
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "unsafe-local-sitehits-secret")
 DEBUG = os.environ.get("DJANGO_DEBUG", "true").lower() in {"1", "true", "yes"}
@@ -40,18 +108,28 @@ INSTALLED_APPS = [
     "allauth.account",
     "allauth.socialaccount",
     "allauth.socialaccount.providers.google",
+    "oauth2_provider",
+    "mcp_oauth",
     "websites",
     "analytics",
     "dashboard",
     "mcp_gateway",
 ]
 
+OAUTH2_PROVIDER_APPLICATION_MODEL = "mcp_oauth.OAuthApplication"
+OAUTH2_PROVIDER_GRANT_MODEL = "mcp_oauth.OAuthGrant"
+OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL = "mcp_oauth.OAuthAccessToken"
+OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL = "mcp_oauth.OAuthRefreshToken"
+OAUTH2_PROVIDER_ID_TOKEN_MODEL = "mcp_oauth.OAuthIDToken"
+
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "mcp_gateway.middleware.DjangoRequestCorrelationMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "analytics.middleware.EventCorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "mcp_gateway.middleware.OAuthNoStoreMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "allauth.account.middleware.AccountMiddleware",
@@ -60,6 +138,30 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = "config.urls"
+DEFAULT_EXCEPTION_REPORTER = "mcp_gateway.exception_reporting.SiteHitsExceptionReporter"
+DEFAULT_EXCEPTION_REPORTER_FILTER = (
+    "mcp_gateway.exception_reporting.SiteHitsExceptionReporterFilter"
+)
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"null": {"class": "logging.NullHandler"}},
+    "loggers": {
+        # Pinned DOT/oauthlib DEBUG records serialize callback URLs, grants,
+        # OAuth requests, and token dictionaries. SiteHits owns safe lifecycle
+        # audit events instead; dependency records never leave this boundary.
+        "oauth2_provider": {
+            "handlers": ["null"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "oauthlib": {
+            "handlers": ["null"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+    },
+}
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
@@ -84,6 +186,10 @@ DATABASES = {
         conn_health_checks=True,
     )
 }
+if not DEBUG and DATABASES["default"]["ENGINE"] != "django.db.backends.postgresql":
+    raise ImproperlyConfigured(
+        "Stage 1 production requires PostgreSQL; configure DATABASE_URL explicitly."
+    )
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -194,12 +300,31 @@ if not DEBUG and EMAIL_BACKEND == "django_ses.SESBackend":
             + ", ".join(missing_ses_settings)
         )
 
-SITEHITS_BASE_URL = os.environ.get("SITEHITS_BASE_URL", "http://localhost:8000").rstrip("/")
+SITEHITS_BASE_URL = os.environ.get("SITEHITS_BASE_URL", "http://localhost:8000")
 SITEHITS_HASH_SECRET = os.environ.get("SITEHITS_HASH_SECRET", SECRET_KEY)
 SITEHITS_GEOIP_DB_PATH = os.environ.get("SITEHITS_GEOIP_DB_PATH", "")
 SITEHITS_TRUST_PROXY_HEADERS = os.environ.get(
     "SITEHITS_TRUST_PROXY_HEADERS", "false"
 ).lower() in {"1", "true", "yes"}
+SITEHITS_TRUSTED_PROXY_IPS = env_list(
+    "SITEHITS_TRUSTED_PROXY_IPS",
+    default="127.0.0.1,::1",
+)
+for trusted_proxy_ip in SITEHITS_TRUSTED_PROXY_IPS:
+    try:
+        ip_address(trusted_proxy_ip)
+    except ValueError as exc:
+        raise ImproperlyConfigured(
+            "SITEHITS_TRUSTED_PROXY_IPS must contain exact IP addresses."
+        ) from exc
+if SITEHITS_TRUST_PROXY_HEADERS and not SITEHITS_TRUSTED_PROXY_IPS:
+    raise ImproperlyConfigured(
+        "SITEHITS_TRUSTED_PROXY_IPS is required when proxy headers are trusted."
+    )
+if not DEBUG and not SITEHITS_TRUST_PROXY_HEADERS:
+    raise ImproperlyConfigured(
+        "Stage 1 production requires trusted reverse-proxy headers."
+    )
 SITEHITS_MAX_EVENT_BYTES = int(os.environ.get("SITEHITS_MAX_EVENT_BYTES", "16384"))
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
 SITEHITS_GOAL_PLANNING_MODEL = os.environ.get(
@@ -216,14 +341,14 @@ SITEHITS_MCP_ISSUER_URL_EXPLICIT = "SITEHITS_MCP_ISSUER_URL" in os.environ
 SITEHITS_MCP_ISSUER_URL = os.environ.get(
     "SITEHITS_MCP_ISSUER_URL",
     SITEHITS_BASE_URL,
-).rstrip("/")
+)
 SITEHITS_MCP_RESOURCE_URL_EXPLICIT = "SITEHITS_MCP_RESOURCE_URL" in os.environ
 SITEHITS_MCP_RESOURCE_URL = os.environ.get(
     "SITEHITS_MCP_RESOURCE_URL",
     f"{SITEHITS_BASE_URL}/mcp",
-).rstrip("/")
-SITEHITS_MCP_HOST = os.environ.get("SITEHITS_MCP_HOST", "0.0.0.0")
-SITEHITS_MCP_PORT = int(os.environ.get("SITEHITS_MCP_PORT", "8000"))
+)
+SITEHITS_MCP_HOST = os.environ.get("SITEHITS_MCP_HOST", "127.0.0.1")
+SITEHITS_MCP_PORT = int(os.environ.get("SITEHITS_MCP_PORT", "8001"))
 SITEHITS_MCP_TOKEN_SECRET_EXPLICIT = "SITEHITS_MCP_TOKEN_SECRET" in os.environ
 SITEHITS_MCP_TOKEN_SECRET = os.environ.get(
     "SITEHITS_MCP_TOKEN_SECRET",
@@ -236,33 +361,106 @@ SITEHITS_MCP_DOCUMENTATION_URL = os.environ.get(
 )
 SITEHITS_MCP_SKILL_UPDATE_URL = os.environ.get(
     "SITEHITS_MCP_SKILL_UPDATE_URL",
-    f"{SITEHITS_BASE_URL}/mcp-docs/#standalone-skill-update",
+    "https://sitehits.io/INSTALL.md",
 )
-SITEHITS_MCP_ACCESS_TOKEN_TTL_SECONDS = int(
-    os.environ.get("SITEHITS_MCP_ACCESS_TOKEN_TTL_SECONDS", "3600")
+SITEHITS_MCP_ACCESS_TOKEN_TTL_SECONDS = 15 * 60
+SITEHITS_MCP_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60
+SITEHITS_MCP_AUTHORIZATION_CODE_TTL_SECONDS = 60
+SITEHITS_MCP_AUTHORIZATION_REQUEST_TTL_SECONDS = 10 * 60
+SITEHITS_MCP_CORS_ORIGINS = env_list(
+    "SITEHITS_MCP_CORS_ORIGINS",
+    default=(
+        "http://localhost:3000,http://127.0.0.1:3000"
+        if DEBUG
+        else "https://chatgpt.com,https://codex.openai.com"
+    ),
 )
-SITEHITS_MCP_REFRESH_TOKEN_TTL_SECONDS = int(
-    os.environ.get("SITEHITS_MCP_REFRESH_TOKEN_TTL_SECONDS", str(30 * 24 * 60 * 60))
-)
-SITEHITS_MCP_AUTHORIZATION_CODE_TTL_SECONDS = int(
-    os.environ.get("SITEHITS_MCP_AUTHORIZATION_CODE_TTL_SECONDS", "300")
-)
-SITEHITS_MCP_AUTHORIZATION_REQUEST_TTL_SECONDS = int(
-    os.environ.get("SITEHITS_MCP_AUTHORIZATION_REQUEST_TTL_SECONDS", "600")
-)
-SITEHITS_MCP_ALLOW_LEGACY_TOKENS = os.environ.get(
-    "SITEHITS_MCP_ALLOW_LEGACY_TOKENS",
-    "true" if DEBUG else "false",
-).lower() in {"1", "true", "yes"}
-SITEHITS_MCP_CORS_ORIGINS = [
-    origin.strip()
-    for origin in os.environ.get("SITEHITS_MCP_CORS_ORIGINS", "*").split(",")
-    if origin.strip()
-]
 
-SECURE_PROXY_SSL_HEADER = (
-    ("HTTP_X_FORWARDED_PROTO", "https") if SITEHITS_TRUST_PROXY_HEADERS else None
+validate_service_url("SITEHITS_BASE_URL", SITEHITS_BASE_URL, path="")
+validate_service_url("SITEHITS_MCP_ISSUER_URL", SITEHITS_MCP_ISSUER_URL, path="")
+validate_service_url("SITEHITS_MCP_RESOURCE_URL", SITEHITS_MCP_RESOURCE_URL, path="/mcp")
+if SITEHITS_BASE_URL != SITEHITS_MCP_ISSUER_URL:
+    raise ImproperlyConfigured(
+        "SITEHITS_BASE_URL and SITEHITS_MCP_ISSUER_URL must be byte-identical."
+    )
+if url_origin(SITEHITS_BASE_URL) != url_origin(SITEHITS_MCP_RESOURCE_URL):
+    raise ImproperlyConfigured(
+        "SITEHITS_MCP_RESOURCE_URL must share the public SiteHits origin."
+    )
+validate_cors_origins(SITEHITS_MCP_CORS_ORIGINS)
+
+PUBLIC_BASE_URL = SITEHITS_BASE_URL
+OAUTH_ISSUER = SITEHITS_MCP_ISSUER_URL
+MCP_RESOURCE_URL = SITEHITS_MCP_RESOURCE_URL
+MCP_RESOURCE_METADATA_URL = (
+    f"{SITEHITS_BASE_URL}/.well-known/oauth-protected-resource/mcp"
 )
+DJANGO_EMBEDDED_MCP_RESOURCE_URL = SITEHITS_MCP_RESOURCE_URL
+DJANGO_EMBEDDED_MCP_REFRESH_FAMILY_TTL_SECONDS = (
+    SITEHITS_MCP_REFRESH_TOKEN_TTL_SECONDS
+)
+
+agent_contract = json.loads((BASE_DIR / "agent" / "contract.yaml").read_text(encoding="utf-8"))
+SITEHITS_MCP_OAUTH_SCOPES = tuple(agent_contract["scopes"])
+SITEHITS_MCP_BOOTSTRAP_SCOPES = tuple(
+    agent_contract["tools"][agent_contract["bootstrap"]["tool"]]["required_scopes"]
+)
+OAUTH2_PROVIDER = {
+    "SCOPES": {
+        name: definition["description"]
+        for name, definition in agent_contract["scopes"].items()
+    },
+    "DEFAULT_SCOPES": [],
+    "OAUTH2_VALIDATOR_CLASS": "mcp_gateway.oauth.SiteHitsOAuth2Validator",
+    "RESOURCE_SERVER_TOKEN_RESOURCE_VALIDATOR": (
+        "django_embedded_mcp.oauth.exact_resource_audience"
+    ),
+    "AUTHORIZATION_CODE_EXPIRE_SECONDS": SITEHITS_MCP_AUTHORIZATION_CODE_TTL_SECONDS,
+    "ACCESS_TOKEN_EXPIRE_SECONDS": SITEHITS_MCP_ACCESS_TOKEN_TTL_SECONDS,
+    "REFRESH_TOKEN_EXPIRE_SECONDS": SITEHITS_MCP_REFRESH_TOKEN_TTL_SECONDS,
+    "REFRESH_TOKEN_GRACE_PERIOD_SECONDS": 0,
+    "REFRESH_TOKEN_REUSE_PROTECTION": True,
+    "ROTATE_REFRESH_TOKEN": True,
+    "REQUEST_APPROVAL_PROMPT": "force",
+    "PKCE_REQUIRED": True,
+    "ALLOW_URI_WILDCARDS": False,
+    "ALLOW_LOCALHOST_LOOPBACK": False,
+    # HTTP is admitted only so the product validator can permit the two exact
+    # native-app loopback hosts; every non-loopback callback remains HTTPS-only.
+    "ALLOWED_REDIRECT_URI_SCHEMES": ["https", "http"],
+    "ALLOWED_SCHEMES": ["http", "https"] if DEBUG else ["https"],
+    "COMPLIANT_BCP_RFC9700_IMPLICIT_GRANT": True,
+    "COMPLIANT_BCP_RFC9700_PASSWORD_GRANT": True,
+    "COMPLIANT_BCP_RFC9700_PKCE_METHOD": True,
+    "COMPLIANT_BCP_RFC9700_ACCESS_TOKEN_TRANSPORT": True,
+    "COMPLIANT_BCP_RFC9700_AUTHZ_RESPONSE_ISS": True,
+    "COMPLIANT_BCP_RFC9700_TOKEN_STORAGE": True,
+    "COMPLIANT_BCP_RFC9700_REFRESH_TOKEN": True,
+    "COMPLIANT_BCP_RFC9700_REDIRECT_URI_SCHEME": False,
+    "COMPLIANT_BCP_RFC9700_REDIRECT_URI_MATCHING": True,
+    "COMPLIANT_BCP_RFC9700_PKCE_REQUIRED": True,
+    "DCR_ENABLED": True,
+    "DCR_REGISTRATION_PERMISSION_CLASSES": (
+        "oauth2_provider.dcr.AllowAllDCRPermission",
+    ),
+    "CIMD_ENABLED": False,
+    "OIDC_ENABLED": False,
+    # DOT also uses this setting for RFC 9207 authorization-response `iss`.
+    # Bind it to the same canonical identity as discovery, never request Host.
+    "OIDC_ISS_ENDPOINT": SITEHITS_MCP_ISSUER_URL,
+    "OAUTH2_RESPONSE_TYPES_SUPPORTED": ["code"],
+    "OAUTH2_TOKEN_ENDPOINT_AUTH_METHODS_SUPPORTED": ["none"],
+    "OAUTH2_GRANT_TYPES_SUPPORTED": ["authorization_code", "refresh_token"],
+    "OAUTH2_PROTECTED_RESOURCE_IDENTIFIER": SITEHITS_MCP_RESOURCE_URL,
+    "OAUTH2_PROTECTED_RESOURCE_AUTHORIZATION_SERVERS": [SITEHITS_MCP_ISSUER_URL],
+    "OAUTH2_PROTECTED_RESOURCE_BEARER_METHODS_SUPPORTED": ["header"],
+    "OAUTH2_PROTECTED_RESOURCE_NAME": "SiteHits analytics MCP",
+    "OAUTH2_PROTECTED_RESOURCE_DOCUMENTATION": SITEHITS_MCP_DOCUMENTATION_URL,
+}
+
+# Uvicorn validates the direct peer before applying forwarded scheme/client data.
+# Django must not independently trust a raw X-Forwarded-Proto header.
+SECURE_PROXY_SSL_HEADER = None
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 SECURE_SSL_REDIRECT = not DEBUG

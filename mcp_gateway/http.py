@@ -1,271 +1,172 @@
+"""Stage 1 HTTP policy shared by the Django OAuth and MCP ASGI processes."""
+
+from __future__ import annotations
+
 import json
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+import re
+from typing import ClassVar
+from urllib.parse import urlsplit
+from uuid import uuid4
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
+from django_embedded_mcp.challenges import build_auth_failure_challenge
+from django_embedded_mcp.http import HeaderOnlyBearerMiddleware
+from django_embedded_mcp.metadata import (
+    build_authorization_server_metadata,
+    build_protected_resource_metadata,
+)
+from django_embedded_mcp.resource import validate_canonical_url
 from starlette.middleware.cors import CORSMiddleware
-from starlette.routing import Mount
 
-OAUTH_SCOPES = ("read", "write")
-PROTECTED_RESOURCE_SCOPES = OAUTH_SCOPES
-OAUTH_PATHS = {
-    "/authorize",
-    "/token",
-    "/register",
-    "/revoke",
-}
-PUBLIC_HTTP_PATHS = OAUTH_PATHS | {
-    "/mcp",
-    "/agent-manifest.json",
-    "/.well-known/oauth-authorization-server",
-    "/.well-known/oauth-protected-resource/mcp",
-}
+_REQUEST_ID_PATTERN = re.compile(
+    r"^(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+)
+def protected_resource_metadata_url() -> str:
+    """Return the configured RFC 9728 metadata URL without normalization."""
+
+    return settings.MCP_RESOURCE_METADATA_URL
 
 
-def canonical_resource_url(value):
-    """Normalize only the URI components MCP asks servers to compare case-insensitively."""
-    try:
-        parsed = urlsplit(value)
-        port = parsed.port
-    except (TypeError, ValueError) as exc:
-        raise ValueError("resource must be a valid absolute URL") from exc
-    if (
-        parsed.scheme not in {"http", "https", "HTTP", "HTTPS"}
-        or not parsed.hostname
-        or parsed.username
-        or parsed.password
-        or parsed.query
-        or parsed.fragment
-    ):
-        raise ValueError("resource must be an absolute HTTP URL without credentials, query, or fragment")
+def authorization_server_metadata() -> dict[str, object]:
+    """Advertise only the OAuth profile actually exposed by Django."""
 
-    hostname = parsed.hostname.lower()
-    if ":" in hostname:
-        hostname = f"[{hostname}]"
-    netloc = f"{hostname}:{port}" if port is not None else hostname
-    return urlunsplit((parsed.scheme.lower(), netloc, parsed.path or "/", "", ""))
-
-
-def protected_resource_metadata_url():
-    resource = urlsplit(settings.SITEHITS_MCP_RESOURCE_URL)
-    path = "" if resource.path == "/" else resource.path
-    return urlunsplit(
-        (
-            resource.scheme,
-            resource.netloc,
-            f"/.well-known/oauth-protected-resource{path}",
-            "",
-            "",
-        )
+    return build_authorization_server_metadata(
+        issuer=settings.SITEHITS_MCP_ISSUER_URL,
+        scopes_supported=settings.SITEHITS_MCP_OAUTH_SCOPES,
+        service_documentation=settings.SITEHITS_MCP_DOCUMENTATION_URL,
     )
 
 
-def validate_oauth_configuration():
+def protected_resource_metadata() -> dict[str, object]:
+    """Return canonical protected-resource metadata for both well-known paths."""
+
+    return build_protected_resource_metadata(
+        resource=settings.SITEHITS_MCP_RESOURCE_URL,
+        authorization_server=settings.SITEHITS_MCP_ISSUER_URL,
+        scopes_supported=settings.SITEHITS_MCP_OAUTH_SCOPES,
+        resource_name="SiteHits analytics MCP",
+        resource_documentation=settings.SITEHITS_MCP_DOCUMENTATION_URL,
+    )
+
+
+def validate_oauth_configuration() -> None:
+    """Fail startup if the public OAuth identity is not byte-stable and coherent."""
+
     try:
-        canonical = canonical_resource_url(settings.SITEHITS_MCP_RESOURCE_URL)
+        base = validate_canonical_url(
+            settings.SITEHITS_BASE_URL,
+            require_https=not settings.DEBUG,
+            allow_root_path=True,
+        )
+        issuer = validate_canonical_url(
+            settings.SITEHITS_MCP_ISSUER_URL,
+            require_https=not settings.DEBUG,
+            allow_root_path=True,
+        )
+        resource = validate_canonical_url(
+            settings.SITEHITS_MCP_RESOURCE_URL,
+            require_https=not settings.DEBUG,
+            allow_root_path=False,
+        )
+        metadata = validate_canonical_url(
+            settings.MCP_RESOURCE_METADATA_URL,
+            require_https=not settings.DEBUG,
+            allow_root_path=False,
+        )
     except ValueError as exc:
-        raise ImproperlyConfigured(f"Invalid SITEHITS_MCP_RESOURCE_URL: {exc}") from exc
-    if canonical != settings.SITEHITS_MCP_RESOURCE_URL:
+        raise ImproperlyConfigured(str(exc)) from exc
+
+    if base != issuer:
         raise ImproperlyConfigured(
-            "SITEHITS_MCP_RESOURCE_URL must already be canonical and must not end in '/'."
+            "SITEHITS_BASE_URL and SITEHITS_MCP_ISSUER_URL must be byte-identical."
         )
-
-    for name in ("SITEHITS_MCP_ISSUER_URL", "SITEHITS_MCP_DOCUMENTATION_URL"):
-        value = getattr(settings, name)
-        parsed = urlsplit(value)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-            raise ImproperlyConfigured(f"{name} must be an absolute HTTP URL.")
-        if parsed.query or parsed.fragment:
-            raise ImproperlyConfigured(f"{name} must not contain a query or fragment.")
-        if (
-            not settings.DEBUG
-            and getattr(settings, f"{name}_EXPLICIT", True)
-            and parsed.scheme != "https"
-        ):
-            raise ImproperlyConfigured(f"{name} must use HTTPS outside local development.")
-    issuer_path = urlsplit(settings.SITEHITS_MCP_ISSUER_URL).path
-    if issuer_path not in {"", "/"}:
-        raise ImproperlyConfigured(
-            "SITEHITS_MCP_ISSUER_URL must be an origin without a path; OAuth routes are root-mounted."
-        )
-    if (
-        not settings.DEBUG
-        and settings.SITEHITS_MCP_RESOURCE_URL_EXPLICIT
-        and urlsplit(settings.SITEHITS_MCP_RESOURCE_URL).scheme != "https"
-    ):
-        raise ImproperlyConfigured(
-            "SITEHITS_MCP_RESOURCE_URL must use HTTPS outside local development."
-        )
-    for setting_name in (
-        "SITEHITS_MCP_ACCESS_TOKEN_TTL_SECONDS",
-        "SITEHITS_MCP_REFRESH_TOKEN_TTL_SECONDS",
-        "SITEHITS_MCP_AUTHORIZATION_CODE_TTL_SECONDS",
-        "SITEHITS_MCP_AUTHORIZATION_REQUEST_TTL_SECONDS",
-    ):
-        if getattr(settings, setting_name) <= 0:
-            raise ImproperlyConfigured(f"{setting_name} must be positive.")
+    base_parts = urlsplit(base)
+    resource_parts = urlsplit(resource)
+    metadata_parts = urlsplit(metadata)
+    origin = (base_parts.scheme, base_parts.netloc)
+    if (resource_parts.scheme, resource_parts.netloc) != origin:
+        raise ImproperlyConfigured("The MCP resource must share the OAuth issuer origin.")
+    if (metadata_parts.scheme, metadata_parts.netloc) != origin:
+        raise ImproperlyConfigured("Protected-resource metadata must share the issuer origin.")
+    if resource_parts.path != "/mcp":
+        raise ImproperlyConfigured("SITEHITS_MCP_RESOURCE_URL must use the exact /mcp path.")
+    if metadata_parts.path != "/.well-known/oauth-protected-resource/mcp":
+        raise ImproperlyConfigured("MCP_RESOURCE_METADATA_URL has an unexpected path.")
 
 
-def authorization_server_metadata():
-    issuer = settings.SITEHITS_MCP_ISSUER_URL
-    return {
-        "issuer": issuer,
-        "authorization_endpoint": f"{issuer}/authorize",
-        "token_endpoint": f"{issuer}/token",
-        "registration_endpoint": f"{issuer}/register",
-        "revocation_endpoint": f"{issuer}/revoke",
-        "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code", "refresh_token"],
-        "token_endpoint_auth_methods_supported": ["none"],
-        "revocation_endpoint_auth_methods_supported": ["none"],
-        "code_challenge_methods_supported": ["S256"],
-        "scopes_supported": list(OAUTH_SCOPES),
-        "service_documentation": settings.SITEHITS_MCP_DOCUMENTATION_URL,
-    }
+def _challenge(*, status: int, credential_present: bool) -> str:
+    return build_auth_failure_challenge(
+        resource_metadata=protected_resource_metadata_url(),
+        scopes=settings.SITEHITS_MCP_BOOTSTRAP_SCOPES,
+        status=status,
+        credential_present=credential_present,
+    )
 
 
-def protected_resource_metadata():
-    return {
-        "resource": settings.SITEHITS_MCP_RESOURCE_URL,
-        "authorization_servers": [settings.SITEHITS_MCP_ISSUER_URL],
-        "scopes_supported": list(PROTECTED_RESOURCE_SCOPES),
-        "bearer_methods_supported": ["header"],
-        "resource_name": "SiteHits analytics MCP",
-        "resource_documentation": settings.SITEHITS_MCP_DOCUMENTATION_URL,
-    }
-
-
-async def _send_json(send, status, payload, headers=()):
-    body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-    response_headers = [
-        (b"content-type", b"application/json"),
-        (b"content-length", str(len(body)).encode("ascii")),
-        *headers,
-    ]
-    await send({"type": "http.response.start", "status": status, "headers": response_headers})
+async def _send_json(send, status: int, payload: dict[str, object], headers=()) -> None:
+    body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    await send(
+        {
+            "type": "http.response.start",
+            "status": status,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode("ascii")),
+                *headers,
+            ],
+        }
+    )
     await send({"type": "http.response.body", "body": body})
 
 
 class PublicMetadataMiddleware:
+    """Serve identical wildcard-CORS metadata from either production process."""
+
+    _handlers: ClassVar = {
+        "/.well-known/oauth-authorization-server": authorization_server_metadata,
+        "/.well-known/oauth-protected-resource": protected_resource_metadata,
+        "/.well-known/oauth-protected-resource/mcp": protected_resource_metadata,
+    }
+
     def __init__(self, app):
         self.app = app
-        self.handlers = {
-            "/.well-known/oauth-authorization-server": authorization_server_metadata,
-            protected_resource_metadata_url_path(): protected_resource_metadata,
-        }
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] == "http" and scope["method"] == "GET":
-            handler = self.handlers.get(scope["path"])
-            if handler is not None:
-                await _send_json(
-                    send,
-                    200,
-                    handler(),
-                    headers=((b"cache-control", b"public, max-age=300"),),
-                )
-                return
-        await self.app(scope, receive, send)
-
-
-def protected_resource_metadata_url_path():
-    return urlsplit(protected_resource_metadata_url()).path
-
-
-class OAuthResourceParameterMiddleware:
-    """Require one unique canonical RFC 8707 target while accepting safe duplicates."""
-
-    def __init__(self, app, *, max_body_size=1_048_576):
-        self.app = app
-        self.expected = settings.SITEHITS_MCP_RESOURCE_URL
-        self.max_body_size = max_body_size
-
-    def _validated_params(self, pairs):
-        resources = [value for key, value in pairs if key == "resource"]
-        if not resources:
-            raise ValueError("The resource parameter is required.")
-        try:
-            normalized = {canonical_resource_url(value) for value in resources}
-        except ValueError as exc:
-            raise ValueError(str(exc)) from exc
-        if normalized != {self.expected}:
-            raise ValueError("The requested resource is not this MCP server.")
-        return [(key, value) for key, value in pairs if key != "resource"] + [
-            ("resource", self.expected)
-        ]
-
-    async def _invalid_target(self, send, description):
+        if scope["type"] != "http" or scope["path"] not in self._handlers:
+            await self.app(scope, receive, send)
+            return
+        if scope["method"] == "OPTIONS":
+            await _send_json(
+                send,
+                204,
+                {},
+                headers=(
+                    (b"access-control-allow-origin", b"*"),
+                    (b"access-control-allow-methods", b"GET, OPTIONS"),
+                    (b"access-control-max-age", b"300"),
+                    (b"cache-control", b"public, max-age=300"),
+                ),
+            )
+            return
+        if scope["method"] != "GET":
+            await _send_json(send, 405, {"error": "method_not_allowed"})
+            return
         await _send_json(
             send,
-            400,
-            {"error": "invalid_target", "error_description": description},
-            headers=((b"cache-control", b"no-store"), (b"pragma", b"no-cache")),
+            200,
+            self._handlers[scope["path"]](),
+            headers=(
+                (b"access-control-allow-origin", b"*"),
+                (b"cache-control", b"public, max-age=300"),
+            ),
         )
 
-    async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or scope["path"] not in {"/authorize", "/token"}:
-            await self.app(scope, receive, send)
-            return
 
-        if scope["path"] == "/authorize" and scope["method"] == "GET":
-            pairs = parse_qsl(scope.get("query_string", b"").decode("utf-8"), keep_blank_values=True)
-            try:
-                pairs = self._validated_params(pairs)
-            except ValueError as exc:
-                await self._invalid_target(send, str(exc))
-                return
-            next_scope = dict(scope)
-            next_scope["query_string"] = urlencode(pairs).encode("utf-8")
-            await self.app(next_scope, receive, send)
-            return
+class RequestCorrelationMiddleware:
+    """Accept proxy correlation only from trusted peers; otherwise create a public ID."""
 
-        if scope["method"] != "POST":
-            await self.app(scope, receive, send)
-            return
-
-        chunks = []
-        size = 0
-        while True:
-            message = await receive()
-            if message["type"] != "http.request":
-                continue
-            chunk = message.get("body", b"")
-            size += len(chunk)
-            if size > self.max_body_size:
-                await self._invalid_target(send, "OAuth request body is too large.")
-                return
-            chunks.append(chunk)
-            if not message.get("more_body", False):
-                break
-        body = b"".join(chunks)
-        try:
-            pairs = parse_qsl(body.decode("utf-8"), keep_blank_values=True)
-            pairs = self._validated_params(pairs)
-        except (UnicodeDecodeError, ValueError) as exc:
-            await self._invalid_target(send, str(exc))
-            return
-        normalized_body = urlencode(pairs).encode("utf-8")
-        delivered = False
-
-        async def replay_receive():
-            nonlocal delivered
-            if delivered:
-                return {"type": "http.disconnect"}
-            delivered = True
-            return {"type": "http.request", "body": normalized_body, "more_body": False}
-
-        next_scope = dict(scope)
-        next_headers = [
-            (key, value)
-            for key, value in scope.get("headers", [])
-            if key.lower() != b"content-length"
-        ]
-        next_headers.append((b"content-length", str(len(normalized_body)).encode("ascii")))
-        next_scope["headers"] = next_headers
-        await self.app(next_scope, replay_receive, send)
-
-
-class OAuthResponseHeadersMiddleware:
     def __init__(self, app):
         self.app = app
 
@@ -273,92 +174,148 @@ class OAuthResponseHeadersMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
+        headers = list(scope.get("headers", []))
+        direct_peer = (scope.get("client") or ("", 0))[0]
+        proxy_marker = any(
+            key.lower() == b"x-sitehits-trusted-proxy" and value == b"1"
+            for key, value in headers
+        )
+        # Uvicorn validates the direct peer and then rewrites ``scope.client``
+        # from X-Forwarded-For. In that production mode the external address is
+        # expected here, while nginx has already overwritten X-Request-ID.
+        trusted = (
+            settings.SITEHITS_TRUST_PROXY_HEADERS and proxy_marker
+        ) or direct_peer in set(settings.SITEHITS_TRUSTED_PROXY_IPS)
+        candidate = ""
+        if trusted:
+            candidate = next(
+                (
+                    value.decode("ascii", "ignore")
+                    for key, value in headers
+                    if key.lower() == b"x-request-id"
+                ),
+                "",
+            )
+        request_id = candidate if _REQUEST_ID_PATTERN.fullmatch(candidate) else uuid4().hex
+        headers = [
+            (key, value)
+            for key, value in headers
+            if key.lower() not in {b"x-request-id", b"x-sitehits-trusted-proxy"}
+        ]
+        headers.append((b"x-request-id", request_id.encode("ascii")))
+        next_scope = {**scope, "headers": headers}
 
-        async def send_with_headers(message):
-            if message["type"] != "http.response.start":
-                await send(message)
-                return
-            status = message["status"]
-            headers = [
-                (key, value)
-                for key, value in message.get("headers", [])
-                if key.lower()
-                not in ({b"www-authenticate"} if scope["path"] == "/mcp" else set())
-            ]
-            if scope["path"] == "/mcp" and status in {401, 403}:
-                authorization = next(
-                    (
-                        value
-                        for key, value in scope.get("headers", [])
-                        if key.lower() == b"authorization"
-                    ),
-                    None,
-                )
-                parts = [
-                    f'resource_metadata="{protected_resource_metadata_url()}"',
-                    'scope="read"',
+        async def send_with_request_id(message):
+            if message["type"] == "http.response.start":
+                response_headers = [
+                    (key, value)
+                    for key, value in message.get("headers", [])
+                    if key.lower() != b"x-request-id"
                 ]
-                if status == 403:
-                    parts.extend(
-                        [
-                            'error="insufficient_scope"',
-                            'error_description="The token lacks a required scope"',
-                        ]
-                    )
-                elif authorization is not None:
-                    parts.extend(
-                        [
-                            'error="invalid_token"',
-                            'error_description="The bearer token is invalid or expired"',
-                        ]
-                    )
-                headers.append((b"www-authenticate", f"Bearer {', '.join(parts)}".encode()))
-            if scope["path"] in OAUTH_PATHS:
+                response_headers.append((b"x-request-id", request_id.encode("ascii")))
+                message = {**message, "headers": response_headers}
+            await send(message)
+
+        await self.app(next_scope, receive, send_with_request_id)
+
+
+class MCPChallengeMiddleware:
+    """Adapt SDK auth failures to the Stage 1 discovery/invalid-token distinction."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["path"] != "/mcp":
+            await self.app(scope, receive, send)
+            return
+        credential_present = any(
+            key.lower() == b"authorization" and value.lower().startswith(b"bearer ")
+            for key, value in scope.get("headers", [])
+        )
+
+        async def send_with_challenge(message):
+            if message["type"] == "http.response.start" and message["status"] in {401, 403}:
                 headers = [
                     (key, value)
-                    for key, value in headers
-                    if key.lower() not in {b"cache-control", b"pragma"}
+                    for key, value in message.get("headers", [])
+                    if key.lower() not in {b"www-authenticate", b"cache-control"}
                 ]
                 headers.extend(
-                    [(b"cache-control", b"no-store"), (b"pragma", b"no-cache")]
+                    (
+                        (
+                            b"www-authenticate",
+                            _challenge(
+                                status=message["status"],
+                                credential_present=credential_present,
+                            ).encode("ascii"),
+                        ),
+                        (b"cache-control", b"no-store"),
+                    )
                 )
-            await send({**message, "headers": headers})
+                message = {**message, "headers": headers}
+            await send(message)
 
-        await self.app(scope, receive, send_with_headers)
+        await self.app(scope, receive, send_with_challenge)
 
 
-class SelectiveCORSMiddleware:
+class MCPPathCORSMiddleware:
+    """Apply the explicit browser-origin allowlist to /mcp only."""
+
     def __init__(self, app):
         self.app = app
         self.cors_app = CORSMiddleware(
             app,
-            allow_origins=settings.SITEHITS_MCP_CORS_ORIGINS,
-            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_origins=list(settings.SITEHITS_MCP_CORS_ORIGINS),
+            allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
             allow_headers=[
                 "Accept",
                 "Authorization",
                 "Content-Type",
                 "MCP-Protocol-Version",
+                "MCP-Session-Id",
+                "X-Request-ID",
             ],
-            expose_headers=["WWW-Authenticate", "MCP-Session-Id"],
+            expose_headers=["WWW-Authenticate", "MCP-Session-Id", "X-Request-ID"],
             max_age=600,
         )
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] == "http" and (
-            scope["path"] in PUBLIC_HTTP_PATHS
-            or scope["path"] == protected_resource_metadata_url_path()
-        ):
-            await self.cors_app(scope, receive, send)
+        if scope["type"] == "http" and scope["path"] == "/mcp":
+            async def send_with_exposed_headers(message):
+                if message["type"] == "http.response.start":
+                    headers = [
+                        (key, value)
+                        for key, value in message.get("headers", [])
+                        if key.lower() != b"access-control-expose-headers"
+                    ]
+                    headers.append(
+                        (
+                            b"access-control-expose-headers",
+                            b"WWW-Authenticate, MCP-Session-Id, X-Request-ID",
+                        )
+                    )
+                    message = {**message, "headers": headers}
+                await send(message)
+
+            await self.cors_app(scope, receive, send_with_exposed_headers)
             return
         await self.app(scope, receive, send)
 
 
-def build_application(mcp, django_application):
+def build_mcp_application(app):
+    """Wrap the SDK resource app in the normative Stage 1 middleware order."""
+
     validate_oauth_configuration()
-    app = mcp.streamable_http_app()
-    app.router.routes.append(Mount("/", app=django_application))
-    wrapped = OAuthResponseHeadersMiddleware(app)
-    wrapped = OAuthResourceParameterMiddleware(wrapped)
-    wrapped = PublicMetadataMiddleware(wrapped)
-    return SelectiveCORSMiddleware(wrapped)
+    wrapped = MCPChallengeMiddleware(app)
+    wrapped = HeaderOnlyBearerMiddleware(
+        wrapped,
+        path="/mcp",
+        invalid_token_challenge=lambda: _challenge(
+            status=401,
+            credential_present=True,
+        ),
+    )
+    wrapped = RequestCorrelationMiddleware(wrapped)
+    wrapped = MCPPathCORSMiddleware(wrapped)
+    return PublicMetadataMiddleware(wrapped)

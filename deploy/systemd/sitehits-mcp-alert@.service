@@ -1,0 +1,11 @@
+[Unit]
+Description=Send SiteHits MCP Stage 1 alert for %i
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/apps/sitehits
+EnvironmentFile=/srv/apps/sitehits/.env
+ExecStart=/usr/bin/python3 /srv/apps/sitehits/deploy/send-mcp-alert.py %i
+NoNewPrivileges=true
+PrivateTmp=true
+

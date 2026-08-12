@@ -1,0 +1,22 @@
+[Unit]
+Description=SiteHits dedicated MCP resource process (immutable GHCR image)
+After=network-online.target postgresql.service sitehits-web.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/apps/sitehits
+EnvironmentFile=/srv/apps/sitehits/.env
+ExecStartPre=/srv/apps/sitehits/deploy/validate-image-ref.sh
+ExecStartPre=/usr/bin/docker pull ${SITEHITS_MCP_IMAGE_REF}
+ExecStartPre=-/usr/bin/docker rm -f sitehits-mcp
+ExecStart=/usr/bin/docker run --rm --name sitehits-mcp --network host --env-file /srv/apps/sitehits/.env --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m --cap-drop ALL --security-opt no-new-privileges --mount type=bind,src=/var/lib/GeoIP/GeoLite2-City.mmdb,dst=/var/lib/GeoIP/GeoLite2-City.mmdb,readonly ${SITEHITS_MCP_IMAGE_REF} sh scripts/start.sh mcp
+ExecStop=/usr/bin/docker stop --time 30 sitehits-mcp
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

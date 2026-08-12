@@ -1,0 +1,90 @@
+name: MCP Stage 1 release seal
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_version:
+        description: Exact SiteHits MCP SemVer
+        required: true
+        type: string
+      image_digest:
+        description: Immutable GHCR sha256 digest
+        required: true
+        type: string
+      smoke_evidence_asset:
+        description: Name of the pre-uploaded smoke evidence asset on this release
+        required: true
+        default: mcp-smoke.json
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  seal:
+    runs-on: ubuntu-latest
+    environment: mcp-production-release
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+      - name: Install locked dependencies
+        run: uv sync --frozen
+      - name: Resolve immutable release evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SERVER_VERSION: ${{ inputs.server_version }}
+          SMOKE_ASSET: ${{ inputs.smoke_evidence_asset }}
+        run: |
+          set -eu
+          tag="sitehits-mcp-v${SERVER_VERSION}"
+          mkdir -p /tmp/sitehits-mcp-release
+          gh release download "$tag" \
+            --pattern "$SMOKE_ASSET" \
+            --dir /tmp/sitehits-mcp-release
+      - name: Generate and validate deterministic descriptor
+        env:
+          SERVER_VERSION: ${{ inputs.server_version }}
+          IMAGE_DIGEST: ${{ inputs.image_digest }}
+          SMOKE_ASSET: ${{ inputs.smoke_evidence_asset }}
+        run: |
+          set -eu
+          smoke="/tmp/sitehits-mcp-release/${SMOKE_ASSET}"
+          uv run python -m mcp_gateway.release \
+            --server-version "$SERVER_VERSION" \
+            --git-commit "$GITHUB_SHA" \
+            --image-digest "$IMAGE_DIGEST" \
+            --client-compatibility integration/client-compatibility.yaml \
+            --smoke-evidence "$smoke" \
+            --output release/mcp-release.json
+          uv run python -m mcp_gateway.release \
+            --server-version "$SERVER_VERSION" \
+            --git-commit "$GITHUB_SHA" \
+            --image-digest "$IMAGE_DIGEST" \
+            --client-compatibility integration/client-compatibility.yaml \
+            --smoke-evidence "$smoke" \
+            --output /tmp/sitehits-mcp-release/mcp-release.second.json
+          cmp \
+            release/mcp-release.json \
+            /tmp/sitehits-mcp-release/mcp-release.second.json
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from jsonschema import Draft202012Validator, FormatChecker
+
+          schema = json.loads(Path("release/mcp-release.schema.json").read_text())
+          descriptor = json.loads(
+              Path("release/mcp-release.json").read_text()
+          )
+          Draft202012Validator(schema, format_checker=FormatChecker()).validate(descriptor)
+          PY
+      - name: Publish immutable descriptor asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SERVER_VERSION: ${{ inputs.server_version }}
+        run: |
+          gh release upload \
+            "sitehits-mcp-v${SERVER_VERSION}" \
+            release/mcp-release.json

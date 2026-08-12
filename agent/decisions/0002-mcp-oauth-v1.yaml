@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "decision_record_version": 1,
+  "id": "0002-mcp-oauth-v1",
+  "status": "accepted",
+  "date": "2026-08-12",
+  "owner": "Onur",
+  "agent_contract_version": "1.0.0",
+  "title": "Operate and release SiteHits MCP and OAuth v1",
+  "context": "Agent Contract 1.0.0 is the pinned semantic source. SiteHits has no external MCP consumer, so Stage 1 can replace provisional endpoints and legacy bearer behavior without a compatibility window.",
+  "decisions": [
+    {
+      "id": "public-identity",
+      "decision": "The production OAuth issuer is byte-exact https://sitehits.io and the canonical MCP resource is byte-exact https://sitehits.io/mcp. Issuer or resource changes require a separate migration release plan rather than an in-place version bump."
+    },
+    {
+      "id": "client-matrix",
+      "decision": "ChatGPT and Codex are the primary v1 production acceptance clients. Claude Code is the required cross-agent acceptance client. MCP Inspector is diagnostic only and cannot by itself satisfy release acceptance. The versioned policy source is integration/client-compatibility.yaml; every MCP descriptor pins its exact SHA-256 digest and seals exact client builds in immutable release evidence."
+    },
+    {
+      "id": "callback-matrix",
+      "decision": "ChatGPT may register an exact HTTPS callback. Codex may register 127.0.0.1 or [::1] HTTP loopback callbacks whose ephemeral port may vary while path and query remain exact. Claude Code may register lowercase http://localhost:<port>/callback; its ephemeral port may vary while host and /callback path remain exact. MCP Inspector uses the same HTTPS or IP-loopback policy for diagnostics. HTTPS localhost, uppercase LOCALHOST, 0.0.0.0, wildcard, userinfo, fragments, and unregistered paths remain unsupported."
+    },
+    {
+      "id": "dcr-only",
+      "decision": "V1 uses DCR-only public clients with Authorization Code, Refresh Token, and PKCE S256. CIMD is not advertised. DCR ownership remains with Onur."
+    },
+    {
+      "id": "dcr-review-triggers",
+      "decision": "The DCR-only decision must be reviewed at the first of: 2026-11-12; public plugin submission; a supported-client matrix change; more than 100 registrations in one UTC day; or DCR abuse decisions exceeding 5 percent of registration attempts in any rolling 24-hour window. The result and compatibility evidence require a new ADR."
+    },
+    {
+      "id": "runtime-topology",
+      "decision": "Production uses PostgreSQL 17. Web and MCP run as separate digest-pinned containers managed by distinct systemd units behind the same-origin reverse proxy and share the product account model, database, settings, and service layer."
+    },
+    {
+      "id": "persistent-operations",
+      "decision": "Registration and OAuth abuse limits are database-backed; local-memory rate limiting is forbidden. Credential and stale-client cleanup runs at least daily through a systemd timer and emits bounded-job metrics suitable for alerting."
+    },
+    {
+      "id": "retention",
+      "decision": "Agent and OAuth audit records are retained for 90 days. Terminal or expired OAuth credential metadata and stale DCR client metadata are retained for 30 days, after which daily bounded cleanup may delete them. Raw credentials are never retained as audit evidence."
+    },
+    {
+      "id": "immutable-release",
+      "decision": "The server runtime is published as a GHCR image pinned by digest. The deployment topology/config checkout is detached at the descriptor's full git_commit. The MCP descriptor and immutable ChatGPT-plus-Codex-plus-Claude-Code smoke bundle are GitHub Release assets. Downstream consumers resolve the descriptor, source commit, client compatibility matrix, and image by immutable identity, never by a mutable branch or image tag."
+    },
+    {
+      "id": "clean-cut-rollout",
+      "decision": "There are no external consumers and no legacy compatibility window. The production cutover removes provisional endpoints and legacy token behavior. Rollback may restore only a prior immutable compatible image/config/descriptor and must never reactivate revoked tokens or consumed codes."
+    }
+  ],
+  "migration_plan": [
+    "Take a PostgreSQL 17 backup and record the pinned Agent Contract descriptor digest.",
+    "Apply additive OAuth, audit, rate-limit, cleanup-index, and constraint migrations before routing traffic to the new MCP process.",
+    "Drain and stop every old web/MCP writer before refresh-family migrations 0002 through 0004; this clean-cut release does not claim zero-downtime migration.",
+    "Run code-exchange, refresh-family, revoke, quota, and cleanup concurrency suites against PostgreSQL 17 rather than SQLite.",
+    "Deploy the digest-pinned GHCR image to staging, execute ChatGPT, Codex, and Claude Code acceptance plus Inspector diagnostics, then promote the same digest to production.",
+    "Seal release/mcp-release.json only after immutable image, registry, smoke, audit, refresh, revoke, cleanup, and rollback evidence exists."
+  ],
+  "rollback_plan": [
+    "Keep the previous immutable image, configuration, descriptor, and database backup available until the post-deploy rollback smoke is green.",
+    "If additive schema remains backward-compatible, route MCP traffic to the previous image and repeat discovery, exact-resource, OAuth, initialize, bootstrap, audit, refresh, and revoke smoke.",
+    "If schema is not backward-compatible, do not downgrade code or reverse state transitions; disable new traffic if necessary and roll forward a corrective image.",
+    "A rollback must preserve revocations, consumed authorization codes, refresh-family replay decisions, audit records, and cleanup evidence."
+  ],
+  "consequences": [
+    "Stage 1 is not releasable from repository artifacts alone; production PostgreSQL, real-client, GHCR, GitHub Release, cleanup-health, and rollback evidence are mandatory.",
+    "MCP server SemVer remains independent of the Agent Contract version; no mcp_contract_version is introduced.",
+    "Standalone Skill work may begin only after a sealed MCP descriptor and immutable Stage 1 acceptance evidence exist."
+  ]
+}
