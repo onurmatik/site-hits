@@ -71,10 +71,9 @@ sites and a hot/cold boundary.
    `SITEHITS_ARCHIVE_DELETE_SOURCE=true`. The next daily maintenance run batch-deletes source rows
    for verified manifests.
 
-The source Agent Contract is a 2.0.0 candidate. `SITEHITS_ALLOW_UNRELEASED_AGENT_CONTRACT=true` is
-development-only. Before a production rollout, explicitly seal and publish the 2.0.0 contract and
-its conformance evidence; production remains fail-closed against the existing immutable 1.x
-release descriptor.
+Agent Contract 2.0.0 is sealed by the immutable `agent-contract-v2.0.0` annotated tag.
+`SITEHITS_ALLOW_UNRELEASED_AGENT_CONTRACT=true` remains development-only; production verifies the
+materialized release descriptor and pinned digests at startup.
 
 ## Scheduled operations
 

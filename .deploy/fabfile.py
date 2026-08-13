@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
@@ -47,6 +48,10 @@ SYSTEMD_UNITS = (
     "sitehits-mcp-cleanup-health.service",
     "sitehits-mcp-cleanup-health.timer",
     "sitehits-mcp-alert@.service",
+    "sitehits-archive-maintenance.service",
+    "sitehits-archive-maintenance.timer",
+    "sitehits-historical-cache.service",
+    "sitehits-historical-cache.timer",
 )
 NGINX_MCP_SNIPPET = "/etc/nginx/snippets/sitehits-mcp.locations.conf"
 RUNTIME_ENV_KEYS = (
@@ -59,6 +64,24 @@ RUNTIME_ENV_KEYS = (
     "SITEHITS_TRUST_PROXY_HEADERS",
     "SITEHITS_TRUSTED_PROXY_IPS",
     "SITEHITS_GEOIP_DB_PATH",
+    "SITEHITS_ALLOW_UNRELEASED_AGENT_CONTRACT",
+    "SITEHITS_ARCHIVE_ENABLED",
+    "SITEHITS_ARCHIVE_DELETE_SOURCE",
+    "SITEHITS_ARCHIVE_QUERY_ENABLED",
+    "SITEHITS_ARCHIVE_BUCKET",
+    "SITEHITS_ARCHIVE_PREFIX",
+    "SITEHITS_ARCHIVE_REGION",
+    "SITEHITS_ARCHIVE_ENDPOINT",
+    "SITEHITS_ARCHIVE_KMS_KEY_ID",
+    "SITEHITS_ARCHIVE_HOT_DAYS",
+    "SITEHITS_ARCHIVE_QUERYABLE_DAYS",
+    "SITEHITS_ARCHIVE_RETENTION_DAYS",
+    "SITEHITS_HISTORICAL_CACHE_SECONDS",
+    "SITEHITS_HISTORICAL_QUERY_TIMEOUT_SECONDS",
+    "SITEHITS_HISTORICAL_QUERY_CONCURRENCY",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
     "OPENAI_API_KEY",
     "SITEHITS_GOAL_PLANNING_MODEL",
     "SITEHITS_GOAL_PLANNING_TIMEOUT_SECONDS",
@@ -164,6 +187,35 @@ def sync_runtime_env(connection: Connection) -> None:
         app_run(connection, f"rm -f {quote(Path(staged_path).name)}", warn=True)
 
 
+def snapshot_release_state(connection: Connection, previous_commit: str) -> None:
+    """Keep the previous exact source/image identity without exposing runtime secrets."""
+    script = f"""
+umask 077
+{{
+  printf 'SITEHITS_PREVIOUS_GIT_COMMIT={previous_commit}\\n'
+  grep '^SITEHITS_MCP_IMAGE_REF=' .env || true
+}} > .previous-release
+""".strip()
+    app_run(connection, f"bash -lc {quote(script)}")
+
+
+def backup_database(connection: Connection) -> None:
+    backup_directory = f"/srv/backups/{PROJECT_NAME}"
+    backup_path = f"{backup_directory}/predeploy-{RELEASE_GIT_COMMIT}.dump"
+    connection.sudo(
+        f"install -d -o {quote(APP_USER)} -g {quote(APP_USER)} -m 700 {quote(backup_directory)}"
+    )
+    if connection.run(f"test -s {quote(backup_path)}", warn=True, hide=True).ok:
+        return
+    app_run(
+        connection,
+        f"set -a && . ./.env && set +a && python3 .deploy/backup_database.py {quote(backup_path)}",
+    )
+    connection.sudo(f"chmod 600 {quote(backup_path)}")
+    if connection.run(f"test -s {quote(backup_path)}", warn=True, hide=True).failed:
+        raise RuntimeError("The pre-deploy PostgreSQL backup was not created.")
+
+
 def install_stage1_topology(connection: Connection) -> None:
     """Install the digest-pinned Stage 1 process topology without mutable checkout runtime."""
 
@@ -175,8 +227,7 @@ def install_stage1_topology(connection: Connection) -> None:
     )
     app_run(
         connection,
-        "set -a && . ./.env && set +a && "
-        "python3 deploy/send-mcp-alert.py --check",
+        "set -a && . ./.env && set +a && python3 deploy/send-mcp-alert.py --check",
     )
     for unit in SYSTEMD_UNITS:
         source = f"{PROJECT_DIR}/deploy/systemd/{unit}"
@@ -207,7 +258,9 @@ def install_stage1_topology(connection: Connection) -> None:
     # cleanup run has seeded the durable health record.
     connection.sudo(
         "systemctl disable --now sitehits-mcp-cleanup.timer "
-        "sitehits-mcp-cleanup-health.timer",
+        "sitehits-mcp-cleanup-health.timer "
+        "sitehits-archive-maintenance.timer "
+        "sitehits-historical-cache.timer",
         warn=True,
     )
     connection.sudo("systemctl enable sitehits-web.service sitehits-mcp.service")
@@ -220,8 +273,46 @@ def install_stage1_topology(connection: Connection) -> None:
     connection.sudo("systemctl start sitehits-mcp.service")
     connection.sudo(
         "systemctl enable --now sitehits-mcp-cleanup.timer "
-        "sitehits-mcp-cleanup-health.timer"
+        "sitehits-mcp-cleanup-health.timer "
+        "sitehits-archive-maintenance.timer "
+        "sitehits-historical-cache.timer"
     )
+
+
+def verify_deployment(connection: Connection) -> None:
+    app_run(
+        connection,
+        f'test "$(git rev-parse HEAD)" = {quote(RELEASE_GIT_COMMIT)}',
+    )
+    connection.sudo(
+        "systemctl is-active --quiet sitehits-web.service sitehits-mcp.service "
+        "sitehits-mcp-cleanup.timer sitehits-mcp-cleanup-health.timer "
+        "sitehits-archive-maintenance.timer sitehits-historical-cache.timer"
+    )
+    health = connection.run(
+        f"curl --fail --silent --show-error https://{quote(DOMAIN)}/health/",
+        hide=True,
+    ).stdout
+    if json.loads(health) != {"status": "ok"}:
+        raise RuntimeError("The public health endpoint returned an unexpected response.")
+    manifest = json.loads(
+        connection.run(
+            f"curl --fail --silent --show-error https://{quote(DOMAIN)}/agent-manifest.json",
+            hide=True,
+        ).stdout
+    )
+    if (
+        manifest.get("server_version") != "0.3.0"
+        or manifest.get("agent_contract_version") != "2.0.0"
+    ):
+        raise RuntimeError("The public agent manifest does not match the deployed release.")
+    mcp_status = connection.run(
+        f"curl --silent --show-error --output /dev/null --write-out '%{{http_code}}' "
+        f"https://{quote(DOMAIN)}/mcp",
+        hide=True,
+    ).stdout.strip()
+    if mcp_status != "401":
+        raise RuntimeError("The public MCP resource did not return its OAuth challenge.")
 
 
 def ensure_geoip_database(connection: Connection) -> None:
@@ -295,7 +386,9 @@ def deploy(_context):
     connection.run(f"mkdir -p {quote(PROJECT_DIR)}")
     connection.run(f"chown {quote(APP_USER)}:{quote(APP_USER)} {quote(PROJECT_DIR)}")
 
+    previous_commit = ""
     if connection.run(f"test -d {quote(PROJECT_DIR + '/.git')}", warn=True, hide=True).ok:
+        previous_commit = app_run(connection, "git rev-parse HEAD").stdout.strip()
         app_run(connection, "git fetch origin --tags --prune")
     else:
         is_empty = connection.run(
@@ -316,14 +409,18 @@ def deploy(_context):
     app_run(connection, f"git checkout --detach {quote(RELEASE_GIT_COMMIT)}")
     app_run(
         connection,
-        f"test \"$(git rev-parse HEAD)\" = {quote(RELEASE_GIT_COMMIT)}",
+        f'test "$(git rev-parse HEAD)" = {quote(RELEASE_GIT_COMMIT)}',
     )
 
     ensure_geoip_database(connection)
     ensure_runtime_env(connection)
+    if previous_commit and previous_commit != RELEASE_GIT_COMMIT:
+        snapshot_release_state(connection, previous_commit)
     sync_runtime_env(connection)
+    backup_database(connection)
 
     install_stage1_topology(connection)
+    verify_deployment(connection)
 
 
 ns = Collection(deploy)

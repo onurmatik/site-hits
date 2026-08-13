@@ -72,9 +72,7 @@ def _smoke_evidence(contract, *, commit, image_digest):
             "Claude/Claude Desktop": client("1.2026.210"),
             "Claude Code": client("2.1.212"),
         },
-        "diagnostic_clients": {
-            "MCP Inspector": client("0.18.0", diagnostic=True)
-        },
+        "diagnostic_clients": {"MCP Inspector": client("0.18.0", diagnostic=True)},
         "flows": sorted(release.REQUIRED_SMOKE_FLOWS),
         "git_commit": commit,
         "image_digest": image_digest,
@@ -87,12 +85,12 @@ def _smoke_evidence(contract, *, commit, image_digest):
         "tested_at": "2026-08-12T12:34:56Z",
         "evidence_uri": (
             "https://github.com/onurmatik/site-hits/releases/download/"
-            "sitehits-mcp-v0.2.0/mcp-smoke.json"
+            "sitehits-mcp-v0.3.0/mcp-smoke.json"
         ),
     }
 
 
-def test_unreleased_contract_candidate_cannot_reuse_stage0_descriptor(tmp_path):
+def test_released_contract_descriptor_can_seal_the_mcp_candidate(tmp_path):
     contract = _load(CONTRACT_PATH)
     commit = "0123456789abcdef0123456789abcdef01234567"
     image_digest = f"sha256:{'a' * 64}"
@@ -101,16 +99,16 @@ def test_unreleased_contract_candidate_cannot_reuse_stage0_descriptor(tmp_path):
         json.dumps(_smoke_evidence(contract, commit=commit, image_digest=image_digest))
     )
     assert contract["agent_contract_version"] == "2.0.0"
-    assert _load(CONTRACT_DESCRIPTOR_PATH)["agent_contract_version"] == "1.0.0"
-    with pytest.raises(ValueError, match="not the pinned Agent Contract release"):
-        release.build_descriptor(
-            server_version="0.2.0",
-            contract_path=CONTRACT_PATH,
-            contract_descriptor_path=CONTRACT_DESCRIPTOR_PATH,
-            git_commit=commit,
-            image_digest=image_digest,
-            smoke_evidence_path=evidence_path,
-        )
+    assert _load(CONTRACT_DESCRIPTOR_PATH)["agent_contract_version"] == "2.0.0"
+    descriptor = release.build_descriptor(
+        server_version="0.3.0",
+        contract_path=CONTRACT_PATH,
+        contract_descriptor_path=CONTRACT_DESCRIPTOR_PATH,
+        git_commit=commit,
+        image_digest=image_digest,
+        smoke_evidence_path=evidence_path,
+    )
+    assert descriptor["agent_contract"]["agent_contract_version"] == "2.0.0"
 
 
 def test_pinned_runtime_dependencies_and_shared_adapter_public_seam():
@@ -144,7 +142,7 @@ def test_release_descriptor_rejects_runtime_version_drift(tmp_path):
     )
     with pytest.raises(ValueError, match="deployed runtime artifact"):
         release.build_descriptor(
-            server_version="0.2.1",
+            server_version="0.3.1",
             contract_path=CONTRACT_PATH,
             contract_descriptor_path=CONTRACT_DESCRIPTOR_PATH,
             git_commit=commit,
@@ -211,9 +209,7 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path, mon
     image_digest = f"sha256:{'b' * 64}"
     candidate_descriptor = _load(CONTRACT_DESCRIPTOR_PATH)
     candidate_descriptor["agent_contract_version"] = contract["agent_contract_version"]
-    candidate_descriptor["contract_sha256"] = hashlib.sha256(
-        CONTRACT_PATH.read_bytes()
-    ).hexdigest()
+    candidate_descriptor["contract_sha256"] = hashlib.sha256(CONTRACT_PATH.read_bytes()).hexdigest()
     candidate_descriptor_path = tmp_path / "candidate-contract-release.json"
     candidate_descriptor_path.write_text(json.dumps(candidate_descriptor))
     monkeypatch.setattr(
@@ -235,7 +231,7 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path, mon
         match="exact primary and cross-agent baseline",
     ):
         release.build_descriptor(
-            server_version="0.2.0",
+            server_version="0.3.0",
             contract_path=CONTRACT_PATH,
             contract_descriptor_path=candidate_descriptor_path,
             git_commit=commit,
@@ -248,7 +244,7 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path, mon
     evidence_path.write_text(json.dumps(evidence))
     with pytest.raises(ValueError, match="tool_registry_sha256"):
         release.build_descriptor(
-            server_version="0.2.0",
+            server_version="0.3.0",
             contract_path=CONTRACT_PATH,
             contract_descriptor_path=candidate_descriptor_path,
             git_commit=commit,
@@ -261,7 +257,7 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path, mon
     evidence_path.write_text(json.dumps(evidence))
     with pytest.raises(ValueError, match="client_compatibility_sha256"):
         release.build_descriptor(
-            server_version="0.2.0",
+            server_version="0.3.0",
             contract_path=CONTRACT_PATH,
             contract_descriptor_path=candidate_descriptor_path,
             git_commit=commit,
@@ -272,12 +268,12 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path, mon
     evidence = _smoke_evidence(contract, commit=commit, image_digest=image_digest)
     evidence["evidence_uri"] = (
         "https://github.com/onurmatik/site-hits/releases/download/"
-        "sitehits-mcp-v0.2.1/mcp-smoke.json"
+        "sitehits-mcp-v0.3.1/mcp-smoke.json"
     )
     evidence_path.write_text(json.dumps(evidence))
     with pytest.raises(ValueError, match="server version's immutable release tag"):
         release.build_descriptor(
-            server_version="0.2.0",
+            server_version="0.3.0",
             contract_path=CONTRACT_PATH,
             contract_descriptor_path=candidate_descriptor_path,
             git_commit=commit,
@@ -290,7 +286,7 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path, mon
     evidence_path.write_text(json.dumps(evidence))
     with pytest.raises(ValueError, match="Smoke evidence keys differ"):
         release.build_descriptor(
-            server_version="0.2.0",
+            server_version="0.3.0",
             contract_path=CONTRACT_PATH,
             contract_descriptor_path=candidate_descriptor_path,
             git_commit=commit,
@@ -308,7 +304,7 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path, mon
     )
     with pytest.raises(ValueError, match="Contract content"):
         release.build_descriptor(
-            server_version="0.2.0",
+            server_version="0.3.0",
             contract_path=tampered_contract_path,
             contract_descriptor_path=candidate_descriptor_path,
             git_commit=commit,
@@ -321,7 +317,7 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path, mon
     upstream_path.write_text(json.dumps(upstream))
     with pytest.raises(ValueError, match="pinned immutable artifact"):
         release.build_descriptor(
-            server_version="0.2.0",
+            server_version="0.3.0",
             contract_path=CONTRACT_PATH,
             contract_descriptor_path=upstream_path,
             git_commit=commit,
@@ -336,9 +332,7 @@ def test_stage1_sources_adr_and_runbook_capture_resolved_operations():
     assert sources["runtime_artifact_store"] == "ghcr_oci_digest"
     assert sources["immutable_ref_pattern"] == "sitehits-mcp-v{server_version}"
     assert sources["descriptor_path"] == "release/mcp-release.json"
-    assert "ChatGPT-plus-Codex-plus-Claude-plus-Claude-Code" in sources[
-        "consumer_resolution"
-    ]
+    assert "ChatGPT-plus-Codex-plus-Claude-plus-Claude-Code" in sources["consumer_resolution"]
 
     matrix = _load(CLIENT_COMPATIBILITY_PATH)
     assert matrix["registration_policy"]["preferred"] == "cimd"
@@ -441,12 +435,45 @@ def test_deploy_seeds_cleanup_health_before_enabling_persistent_health_timer():
     assert stop_timers < migrate_and_start_web < seed_cleanup < enable_timers
 
 
+def test_deploy_installs_archive_jobs_backs_up_and_verifies_public_identity():
+    deploy_source = (ROOT / ".deploy" / "fabfile.py").read_text()
+    backup_source = (ROOT / ".deploy" / "backup_database.py").read_text()
+    archive_unit = (
+        ROOT / "deploy" / "systemd" / "sitehits-archive-maintenance.service"
+    ).read_text()
+    historical_unit = (
+        ROOT / "deploy" / "systemd" / "sitehits-historical-cache.service"
+    ).read_text()
+
+    for unit in (
+        "sitehits-archive-maintenance.service",
+        "sitehits-archive-maintenance.timer",
+        "sitehits-historical-cache.service",
+        "sitehits-historical-cache.timer",
+    ):
+        assert unit in deploy_source
+    assert deploy_source.index("backup_database(connection)") < deploy_source.index(
+        "install_stage1_topology(connection)"
+    )
+    assert "predeploy-{RELEASE_GIT_COMMIT}.dump" in deploy_source
+    assert "agent-manifest.json" in deploy_source
+    assert 'manifest.get("server_version") != "0.3.0"' in deploy_source
+    assert 'manifest.get("agent_contract_version") != "2.0.0"' in deploy_source
+    assert 'if mcp_status != "401"' in deploy_source
+    assert "PGPASSWORD" in backup_source
+    assert '"--dbname",' in backup_source
+    assert '"--format=custom"' in backup_source
+    for unit in (archive_unit, historical_unit):
+        assert "--read-only" in unit
+        assert "GeoLite2-City.mmdb" in unit
+
+
 def test_stage1_ci_runs_full_postgres_suite_and_history_secret_scan():
     workflow = (ROOT / ".github" / "workflows" / "mcp-stage1-postgres.yml").read_text()
 
     assert "image: postgres:17.10" in workflow
     assert "show server_version_num" in workflow
-    assert "show server_version_num')\" = \"170010\"" in workflow
+    assert 'show server_version_num\')" = "170010"' in workflow
     assert "manage.py check --deploy --tag database" in workflow
     assert "fetch-depth: 0" in workflow
     assert "run: uv run pytest -q" in workflow

@@ -164,7 +164,9 @@ def test_create_site_is_atomic_idempotent_and_audited(runtime):
     assert len(first["revision"]) == 64
     assert first["revision"] != first["updated_at"]
     assert AgentIdempotencyRecord.objects.count() == 1
-    assert AgentAuditEvent.objects.filter(tool_name="create_site", outcome_code="success").count() == 2
+    assert (
+        AgentAuditEvent.objects.filter(tool_name="create_site", outcome_code="success").count() == 2
+    )
     assert_error(
         "idempotency_conflict",
         runtime.create_site,
@@ -629,9 +631,9 @@ def test_collections_omit_foreign_and_system_owned_sites_without_global_access(a
     )
 
     assert [site["slug"] for site in regular.list_sites()["sites"]] == [owned.slug]
-    assert [
-        site["slug"] for site in regular.get_sites_overview(period="last7d")["sites"]
-    ] == [owned.slug]
+    assert [site["slug"] for site in regular.get_sites_overview(period="last7d")["sites"]] == [
+        owned.slug
+    ]
 
 
 @pytest.mark.django_db
@@ -658,11 +660,12 @@ def test_global_resource_access_includes_foreign_and_system_owned_sites(superuse
     )
 
     bootstrap = privileged.get_account_capabilities()
-    assert next(
-        item
-        for item in bootstrap["capabilities"]
-        if item["name"] == "global_resource_access"
-    )["available"] is True
+    assert (
+        next(
+            item for item in bootstrap["capabilities"] if item["name"] == "global_resource_access"
+        )["available"]
+        is True
+    )
     assert {site["slug"] for site in privileged.list_sites()["sites"]} == {
         "foreign-global",
         "system-global",
@@ -794,7 +797,7 @@ def test_all_public_tools_return_exact_contract_outputs_and_audit(agent_user):
             request_id="success_vectors_001",
         ),
         integration_status_provider=lambda version: {
-            "server_version": "0.2.0",
+            "server_version": "0.3.0",
             "agent_contract_version": "2.0.0",
             "latest_skill_version": "2.0.0",
             "minimum_skill_version": "1.0.0",
@@ -957,8 +960,8 @@ def test_all_applicable_vector_inputs_have_executable_service_outcomes(agent_use
     applicable = {
         json.loads((manifest_dir / entry["path"]).read_text())["tool"]
         for entry in manifest["vectors"]
-        if json.loads((manifest_dir / entry["path"]).read_text())["scenarios"][
-            "invalid_input"
-        ]["applicable"]
+        if json.loads((manifest_dir / entry["path"]).read_text())["scenarios"]["invalid_input"][
+            "applicable"
+        ]
     }
     assert exercised == applicable

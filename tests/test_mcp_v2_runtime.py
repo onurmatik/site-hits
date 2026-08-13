@@ -64,9 +64,7 @@ def test_v2_server_is_explicit_and_registry_is_contract_exact():
     server = _server()
     tools = {tool.name: tool for tool in asyncio.run(server.list_tools())}
     public = {
-        name: tool
-        for name, tool in AGENT_CONTRACT["tools"].items()
-        if tool["exposure"] == "public"
+        name: tool for name, tool in AGENT_CONTRACT["tools"].items() if tool["exposure"] == "public"
     }
     assert set(tools) == set(public)
 
@@ -81,14 +79,10 @@ def test_v2_server_is_explicit_and_registry_is_contract_exact():
         assert {key: value for key, value in tool.output_schema.items() if key != "$defs"} == (
             AGENT_CONTRACT["$defs"][output_name]
         )
-        expected_security = [
-            {"type": "oauth2", "scopes": contract_tool["required_scopes"]}
-        ]
+        expected_security = [{"type": "oauth2", "scopes": contract_tool["required_scopes"]}]
         assert list(registry_by_name[name].security_schemes) == expected_security
         assert tool.meta["securitySchemes"] == expected_security
-        assert tool.annotations.read_only_hint is (
-            contract_tool["side_effect"] == "read_only"
-        )
+        assert tool.annotations.read_only_hint is (contract_tool["side_effect"] == "read_only")
         assert tool.annotations.destructive_hint is contract_tool["destructive"]
         assert tool.annotations.open_world_hint is contract_tool["open_world"]
 
@@ -107,7 +101,6 @@ def test_runtime_rejects_joint_contract_and_descriptor_tampering(tmp_path):
     descriptor_path = release_dir / "contract-release.json"
     contract = json.loads((root / "agent" / "contract.yaml").read_text())
     descriptor = json.loads((root / "release" / "contract-release.json").read_text())
-    contract["agent_contract_version"] = "1.0.0"
     contract["server_instructions"]["summary"] += " Tampered."
     contract_bytes = (json.dumps(contract, indent=2, ensure_ascii=False) + "\n").encode()
     contract_path.write_bytes(contract_bytes)
@@ -319,9 +312,12 @@ def test_standalone_asgi_uses_explicit_transport_security():
         "https://codex.openai.com",
     ]
 
-    with override_settings(
-        DEBUG=False,
-        SITEHITS_MCP_RESOURCE_URL="https://sitehits.example/mcp",
-        SITEHITS_MCP_CORS_ORIGINS=["*"],
-    ), pytest.raises(Exception, match="explicit production allowlist"):
+    with (
+        override_settings(
+            DEBUG=False,
+            SITEHITS_MCP_RESOURCE_URL="https://sitehits.example/mcp",
+            SITEHITS_MCP_CORS_ORIGINS=["*"],
+        ),
+        pytest.raises(Exception, match="explicit production allowlist"),
+    ):
         transport_security_settings()

@@ -11,6 +11,13 @@ The task refuses a branch name or abbreviated SHA. The checkout containing the
 systemd/Nginx/config artifacts is detached at that exact commit, while the web
 and MCP processes run the matching immutable GHCR image digest.
 
+Before migrations, deployment stores the previous commit/image identity in the
+root-readable `.previous-release` file and creates a custom-format PostgreSQL
+backup at `/srv/backups/sitehits/predeploy-<commit>.dump`. Deployment verifies
+the exact checkout, web/MCP services, scheduled jobs, public health endpoint,
+agent manifest versions, and unauthenticated MCP OAuth challenge before it
+returns success.
+
 The first deployment creates `/srv/apps/sitehits/.env` with private runtime
 secrets. Later deployments preserve that file, rebuild frontend assets, apply
 database migrations, and collect static files. Stage 1 requires separate web
@@ -43,6 +50,8 @@ from this exact GHCR digest. Uvicorn must receive the same direct-peer list thro
 `--forwarded-allow-ips`; wildcard proxy trust is forbidden. Install the checked-in
 `deploy/systemd/sitehits-web.service`, `deploy/systemd/sitehits-mcp.service`,
 cleanup timer, and Nginx location include as one topology change.
+The same deployment installs and enables the daily analytics archive maintenance
+timer and hourly historical-cache refresh timer.
 `DATABASE_URL` must resolve to the provisioned PostgreSQL 17 instance; the
 Stage 1 acceptance workflow rejects SQLite as concurrency evidence.
 Onur owns the Stage 1 cleanup alert. The hourly health timer and cleanup unit
