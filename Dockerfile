@@ -17,6 +17,8 @@ RUN addgroup --system sitehits && adduser --system --ingroup sitehits sitehits
 COPY requirements.txt ./
 COPY packages ./packages
 RUN pip install --no-cache-dir -r requirements.txt
+RUN mkdir -p /home/sitehits && chown -R sitehits:sitehits /home/sitehits \
+    && su -s /bin/sh sitehits -c "python -c \"import duckdb; c=duckdb.connect(); [c.install_extension(name) for name in ('httpfs','postgres','sqlite')]; c.close()\""
 COPY . .
 COPY --from=assets /app/static ./static
 RUN DJANGO_DEBUG=true python manage.py collectstatic --noinput \

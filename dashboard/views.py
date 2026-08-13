@@ -814,7 +814,15 @@ def dashboard(request, site_slug):
     if site_slug != "all":
         selected = get_object_or_404(sites, slug=site_slug)
     period = request.GET.get("period", "last7d")
-    if period not in {"today", "last24h", "last7d", "last30d", "last90d"}:
+    if period not in {
+        "today",
+        "last24h",
+        "last7d",
+        "last30d",
+        "last90d",
+        "last180d",
+        "last365d",
+    }:
         period = "last7d"
     granularity = request.GET.get("granularity", "auto")
     if granularity not in {"auto", "hourly", "daily"}:

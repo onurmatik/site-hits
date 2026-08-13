@@ -5,6 +5,7 @@ from ninja.security import django_auth
 
 from websites.models import TrackedSite
 
+from .archive import HistoricalDataUnavailable
 from .bot_ingestion import (
     BotAuthenticationError,
     BotIngestionError,
@@ -14,6 +15,7 @@ from .ingestion import IngestionError, ingest_event
 from .product_ingestion import (
     ProductAuthenticationError,
     ProductIngestionError,
+    cold_deletion_status,
     forget_actor,
     ingest_server_event,
 )
@@ -21,18 +23,19 @@ from .product_reporting import product_metrics
 from .reporting import bot_traffic, breakdown, overview, site_overviews, timeseries
 from .schemas import (
     AcceptedResponse,
+    AnalyticsPeriod,
     BotAcceptedResponse,
     BotEventPayload,
     ErrorResponse,
     EventPayload,
     ForgetActorPayload,
     ForgetActorResponse,
+    ForgetActorStatusResponse,
     ServerAcceptedResponse,
     ServerEventPayload,
 )
 
-
-api = NinjaAPI(title="SiteHits API", version="1.0.0")
+api = NinjaAPI(title="SiteHits API", version="1.1.0")
 
 
 def visible_sites(request):
@@ -79,10 +82,38 @@ def collect_server_event(request, payload: ServerEventPayload):
 )
 def forget_server_actor(request, payload: ForgetActorPayload):
     try:
-        deleted = forget_actor(request, payload.actor_id)
+        job = forget_actor(request, payload.actor_id)
     except ProductAuthenticationError as exc:
         return Status(401, {"error": {"message": str(exc)}})
-    return {"deleted_events": deleted}
+    return {
+        "deleted_events": job.deleted_hot_events,
+        "request_id": str(job.request_id),
+        "deleted_hot_events": job.deleted_hot_events,
+        "status": job.status,
+    }
+
+
+@api.get(
+    "/server-events/forget-actor/{request_id}",
+    auth=None,
+    response={200: ForgetActorStatusResponse, 400: ErrorResponse, 401: ErrorResponse},
+    summary="Get the status of an actor deletion request",
+)
+def get_forget_server_actor_status(request, request_id: str):
+    try:
+        job = cold_deletion_status(request, request_id)
+    except ProductAuthenticationError as exc:
+        return Status(401, {"error": {"message": str(exc)}})
+    except ProductIngestionError as exc:
+        return Status(400, {"error": {"message": str(exc)}})
+    return {
+        "request_id": str(job.request_id),
+        "status": job.status,
+        "deleted_hot_events": job.deleted_hot_events,
+        "deleted_cold_events": job.deleted_cold_events,
+        "rewritten_partitions": job.rewritten_partitions,
+        "error": job.error_message,
+    }
 
 
 @api.post(
@@ -108,9 +139,15 @@ def collect_bot_event(request, payload: BotEventPayload):
 
 
 @api.get("/analytics/overview", auth=django_auth, summary="Get aggregate metrics")
-def analytics_overview(request, site: str = "all", period: str = "last7d"):
+def analytics_overview(
+    request,
+    site: str = "all",
+    period: AnalyticsPeriod = "last7d",
+):
     try:
         return overview(site, period, visible_sites(request))
+    except HistoricalDataUnavailable as exc:
+        raise HttpError(503, str(exc)) from exc
     except ValueError as exc:
         raise HttpError(400, str(exc)) from exc
 
@@ -120,11 +157,17 @@ def analytics_overview(request, site: str = "all", period: str = "last7d"):
     auth=django_auth,
     summary="Get metrics grouped by site",
 )
-def analytics_sites_overview(request, site: str = "all", period: str = "last7d"):
+def analytics_sites_overview(
+    request,
+    site: str = "all",
+    period: AnalyticsPeriod = "last7d",
+):
     if site != "all":
         raise HttpError(400, "Site comparison is only available for all sites.")
     try:
         return site_overviews(period, visible_sites(request))
+    except HistoricalDataUnavailable as exc:
+        raise HttpError(503, str(exc)) from exc
     except ValueError as exc:
         raise HttpError(400, str(exc)) from exc
 
@@ -133,11 +176,13 @@ def analytics_sites_overview(request, site: str = "all", period: str = "last7d")
 def analytics_timeseries(
     request,
     site: str = "all",
-    period: str = "last7d",
+    period: AnalyticsPeriod = "last7d",
     granularity: str = "auto",
 ):
     try:
         return timeseries(site, period, granularity, visible_sites(request))
+    except HistoricalDataUnavailable as exc:
+        raise HttpError(503, str(exc)) from exc
     except ValueError as exc:
         raise HttpError(400, str(exc)) from exc
 
@@ -151,11 +196,13 @@ def analytics_breakdown(
     request,
     dimension: str,
     site: str = "all",
-    period: str = "last7d",
+    period: AnalyticsPeriod = "last7d",
     limit: int = 8,
 ):
     try:
         return breakdown(site, period, dimension, limit, visible_sites(request))
+    except HistoricalDataUnavailable as exc:
+        raise HttpError(503, str(exc)) from exc
     except ValueError as exc:
         raise HttpError(400, str(exc)) from exc
 
@@ -165,9 +212,16 @@ def analytics_breakdown(
     auth=django_auth,
     summary="Get server-side bot traffic analytics",
 )
-def analytics_bots(request, site: str = "all", period: str = "last7d", limit: int = 8):
+def analytics_bots(
+    request,
+    site: str = "all",
+    period: AnalyticsPeriod = "last7d",
+    limit: int = 8,
+):
     try:
         return bot_traffic(site, period, limit, visible_sites(request))
+    except HistoricalDataUnavailable as exc:
+        raise HttpError(503, str(exc)) from exc
     except ValueError as exc:
         raise HttpError(400, str(exc)) from exc
 
@@ -177,8 +231,14 @@ def analytics_bots(request, site: str = "all", period: str = "last7d", limit: in
     auth=django_auth,
     summary="Get configured activation and product metrics",
 )
-def analytics_product_metrics(request, site: str, period: str = "last7d"):
+def analytics_product_metrics(
+    request,
+    site: str,
+    period: AnalyticsPeriod = "last7d",
+):
     try:
         return product_metrics(site, period, visible_sites(request))
+    except HistoricalDataUnavailable as exc:
+        raise HttpError(503, str(exc)) from exc
     except ValueError as exc:
         raise HttpError(400, str(exc)) from exc

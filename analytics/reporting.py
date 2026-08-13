@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from websites.models import TrackedSite
 
+from .archive import ArchivePartition
 from .automation import (
     AUTOMATION_REASON_LABELS,
     EXPLICIT_AUTOMATION_SCORE_THRESHOLD,
@@ -18,10 +19,25 @@ from .automation import (
     RAPID_BURST_WINDOW_SECONDS,
     SESSION_CHURN_THRESHOLD,
 )
+from .cold_reporting import (
+    HISTORICAL_PERIODS,
+    cached_historical_report,
+    historical_bot_traffic,
+    historical_breakdown,
+    historical_overview,
+    historical_timeseries,
+)
 from .models import AnalyticsEvent, BotEvent
 
-
-VALID_PERIODS = {"today", "last24h", "last7d", "last30d", "last90d"}
+VALID_PERIODS = {
+    "today",
+    "last24h",
+    "last7d",
+    "last30d",
+    "last90d",
+    "last180d",
+    "last365d",
+}
 VALID_GRANULARITIES = {"auto", "hourly", "daily"}
 BREAKDOWN_CONFIG = {
     "pages": ("path", Q(event_type="pageview"), False),
@@ -53,6 +69,7 @@ def scoped_identifier(field):
 
 @dataclass(frozen=True)
 class PeriodRange:
+    period: str
     start: datetime
     end: datetime
     previous_start: datetime
@@ -78,11 +95,43 @@ def resolve_period(period, site=None, now=None):
             "last7d": timedelta(days=7),
             "last30d": timedelta(days=30),
             "last90d": timedelta(days=90),
+            "last180d": timedelta(days=180),
+            "last365d": timedelta(days=365),
         }
         start = local_now - durations[period]
     end = local_now
     duration = end - start
-    return PeriodRange(start, end, start - duration, start, tzinfo)
+    return PeriodRange(period, start, end, start - duration, start, tzinfo)
+
+
+def _freshness(source, *, stale=False, generated_at=None):
+    return {
+        "source": source,
+        "generated_at": (generated_at or timezone.now()).isoformat(),
+        "is_stale": stale,
+    }
+
+
+def _report_site_ids(site, sites=None):
+    if site:
+        return [site.pk]
+    queryset = sites if sites is not None else TrackedSite.objects.filter(is_active=True)
+    return list(queryset.values_list("pk", flat=True))
+
+
+def _requires_hybrid(stream, site_ids, start, end):
+    if not site_ids:
+        return False
+    return ArchivePartition.objects.filter(
+        site_id_snapshot__in=site_ids,
+        stream=stream,
+        status__in=[
+            ArchivePartition.Status.DELETING,
+            ArchivePartition.Status.SOURCE_DELETED,
+        ],
+        range_start__lt=end,
+        range_end__gt=start,
+    ).exists()
 
 
 def selected_site(site_slug, sites=None):
@@ -168,7 +217,11 @@ def metric_values_by_site(queryset, site_ids):
     for row in (
         queryset.values("site_id")
         .annotate(
-            visitors=Count("visitor_hash", distinct=True),
+            visitors=Count(
+                "visitor_hash",
+                distinct=True,
+                filter=~Q(visitor_hash=""),
+            ),
             pageviews=Count("id", filter=Q(event_type="pageview")),
         )
         .order_by()
@@ -213,6 +266,39 @@ def delta(current, previous):
 def overview(site_slug, period, sites=None):
     site = selected_site(site_slug, sites)
     ranges = resolve_period(period, site)
+    site_ids = _report_site_ids(site, sites)
+    use_hybrid = period in HISTORICAL_PERIODS or _requires_hybrid(
+        ArchivePartition.Stream.ANALYTICS,
+        site_ids,
+        ranges.previous_start,
+        ranges.end,
+    )
+    if use_hybrid:
+
+        def produce():
+            current, previous = historical_overview(site_ids, ranges)
+            return {
+                "site": site_slug,
+                "period": period,
+                "timezone": str(ranges.timezone),
+                "current": current,
+                "previous": previous,
+                "deltas": {key: delta(current[key], previous[key]) for key in current},
+            }
+
+        if period in HISTORICAL_PERIODS:
+            return cached_historical_report(
+                report_type="overview",
+                site_selector=site_slug,
+                site=site,
+                site_ids=site_ids,
+                period=period,
+                parameters={"site": site_slug},
+                producer=produce,
+            )
+        result = produce()
+        result["freshness"] = _freshness("hybrid")
+        return result
     current = metric_values(event_queryset(site, ranges.start, ranges.end, sites))
     previous = metric_values(
         event_queryset(site, ranges.previous_start, ranges.previous_end, sites)
@@ -224,6 +310,7 @@ def overview(site_slug, period, sites=None):
         "current": current,
         "previous": previous,
         "deltas": {key: delta(current[key], previous[key]) for key in current},
+        "freshness": _freshness("hot"),
     }
 
 
@@ -233,6 +320,63 @@ def site_overviews(period, sites=None):
     site_list = list(sites)
     site_ids = [site.pk for site in site_list]
     ranges = resolve_period(period)
+    use_hybrid = period in HISTORICAL_PERIODS or _requires_hybrid(
+        ArchivePartition.Stream.ANALYTICS,
+        site_ids,
+        ranges.previous_start,
+        ranges.end,
+    )
+    if use_hybrid:
+
+        def produce():
+            current, previous = historical_overview(
+                site_ids,
+                ranges,
+                group_by_site=True,
+            )
+            zero = {
+                "visitors": 0,
+                "sessions": 0,
+                "pageviews": 0,
+                "bounce_rate": 0,
+                "avg_session_duration": 0,
+            }
+            return {
+                "site": "all",
+                "period": period,
+                "timezone": str(ranges.timezone),
+                "sites": [
+                    {
+                        "slug": item.slug,
+                        "name": item.name,
+                        "domains": item.allowed_domains,
+                        "current": current.get(item.pk, zero),
+                        "previous": previous.get(item.pk, zero),
+                        "deltas": {
+                            key: delta(
+                                current.get(item.pk, zero)[key],
+                                previous.get(item.pk, zero)[key],
+                            )
+                            for key in zero
+                        },
+                    }
+                    for item in site_list
+                ],
+            }
+
+        if period in HISTORICAL_PERIODS:
+            return cached_historical_report(
+                report_type="sites_overview",
+                site_selector="all",
+                site=None,
+                site_ids=site_ids,
+                period=period,
+                parameters={"site": "all"},
+                producer=produce,
+            )
+        result = produce()
+        result["freshness"] = _freshness("hybrid")
+        return result
     current = metric_values_by_site(
         event_queryset(None, ranges.start, ranges.end, sites),
         site_ids,
@@ -259,6 +403,7 @@ def site_overviews(period, sites=None):
             }
             for site in site_list
         ],
+        "freshness": _freshness("hot"),
     }
 
 
@@ -270,8 +415,31 @@ def timeseries(site_slug, period, granularity, sites=None):
     resolved = granularity
     if granularity == "auto":
         resolved = "hourly" if period in {"today", "last24h"} else "daily"
-    trunc = TruncHour("occurred_at", tzinfo=ranges.timezone) if resolved == "hourly" else TruncDay(
-        "occurred_at", tzinfo=ranges.timezone
+    site_ids = _report_site_ids(site, sites)
+    if period in HISTORICAL_PERIODS:
+
+        def produce():
+            return {
+                "site": site_slug,
+                "period": period,
+                "granularity": resolved,
+                "timezone": str(ranges.timezone),
+                "data": historical_timeseries(site_ids, ranges, resolved),
+            }
+
+        return cached_historical_report(
+            report_type="timeseries",
+            site_selector=site_slug,
+            site=site,
+            site_ids=site_ids,
+            period=period,
+            parameters={"site": site_slug, "granularity": resolved},
+            producer=produce,
+        )
+    trunc = (
+        TruncHour("occurred_at", tzinfo=ranges.timezone)
+        if resolved == "hourly"
+        else TruncDay("occurred_at", tzinfo=ranges.timezone)
     )
     rows = (
         event_queryset(site, ranges.start, ranges.end, sites)
@@ -279,7 +447,11 @@ def timeseries(site_slug, period, granularity, sites=None):
         .annotate(bucket=trunc)
         .values("bucket")
         .annotate(
-            visitors=Count(scoped_identifier("visitor_hash"), distinct=True),
+            visitors=Count(
+                scoped_identifier("visitor_hash"),
+                distinct=True,
+                filter=~Q(visitor_hash=""),
+            ),
             sessions=Count(scoped_identifier("session_id"), distinct=True),
             pageviews=Count("id", filter=Q(event_type="pageview")),
         )
@@ -299,6 +471,7 @@ def timeseries(site_slug, period, granularity, sites=None):
             }
             for row in rows
         ],
+        "freshness": _freshness("hot"),
     }
 
 
@@ -307,6 +480,22 @@ def breakdown(site_slug, period, dimension, limit=8, sites=None):
         raise ValueError("Unknown breakdown dimension.")
     site = selected_site(site_slug, sites)
     ranges = resolve_period(period, site)
+    site_ids = _report_site_ids(site, sites)
+    if period in HISTORICAL_PERIODS:
+        return cached_historical_report(
+            report_type="breakdown",
+            site_selector=site_slug,
+            site=site,
+            site_ids=site_ids,
+            period=period,
+            parameters={"site": site_slug, "dimension": dimension, "limit": limit},
+            producer=lambda: {
+                "site": site_slug,
+                "period": period,
+                "dimension": dimension,
+                "data": historical_breakdown(site_ids, ranges, dimension, limit),
+            },
+        )
     field, filters, distinct_sessions = BREAKDOWN_CONFIG[dimension]
     empty_label = "Direct" if dimension == "referrers" else "Unknown"
     if dimension == "regions":
@@ -374,6 +563,7 @@ def breakdown(site_slug, period, dimension, limit=8, sites=None):
             }
             for row in rows
         ],
+        "freshness": _freshness("hot"),
     }
 
 
@@ -511,6 +701,45 @@ def _suspected_automation(queryset, limit):
 def bot_traffic(site_slug, period, limit=8, sites=None):
     site = selected_site(site_slug, sites)
     ranges = resolve_period(period, site)
+    site_ids = _report_site_ids(site, sites)
+    if period in HISTORICAL_PERIODS:
+
+        def produce():
+            data = historical_bot_traffic(site_ids, ranges, limit)
+            total = data["total"]
+            return {
+                "site": site_slug,
+                "period": period,
+                "timezone": str(ranges.timezone),
+                "collector": _collector_health(site, sites),
+                "total": total,
+                "categories": [
+                    {
+                        "key": key,
+                        "label": label,
+                        "count": data["categories"].get(key, 0),
+                        "percentage": round(
+                            data["categories"].get(key, 0) / total * 100,
+                            1,
+                        ) if total else 0,
+                    }
+                    for key, label in BOT_CATEGORY_LABELS.items()
+                ],
+                "providers": data["providers"],
+                "pages": data["pages"],
+                "verification": data["verification"],
+                "suspected_automation": data["suspected_automation"],
+            }
+
+        return cached_historical_report(
+            report_type="bots",
+            site_selector=site_slug,
+            site=site,
+            site_ids=site_ids,
+            period=period,
+            parameters={"site": site_slug, "limit": limit},
+            producer=produce,
+        )
     queryset = bot_event_queryset(site, ranges.start, ranges.end, sites)
     automation = _suspected_automation(
         raw_event_queryset(site, ranges.start, ranges.end, sites),
@@ -576,6 +805,7 @@ def bot_traffic(site_slug, period, limit=8, sites=None):
             ).count(),
         },
         "suspected_automation": automation,
+        "freshness": _freshness("hot"),
     }
 
 

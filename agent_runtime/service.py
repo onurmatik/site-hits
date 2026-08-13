@@ -8,6 +8,7 @@ from django.db import transaction
 from django.db.models import ProtectedError
 from django.utils.text import slugify
 
+from analytics.archive import HistoricalDataUnavailable
 from analytics.models import ActivationDefinition, ProductEventDefinition
 from analytics.product_reporting import product_metrics
 from analytics.reporting import bot_traffic, breakdown, overview, site_overviews, timeseries
@@ -614,7 +615,15 @@ class SiteHitsService:
         def authorized_operation():
             if site_slug != "all":
                 self._site(site_slug, include_inactive=False)
-            return operation()
+            try:
+                return operation()
+            except HistoricalDataUnavailable as exc:
+                raise ApplicationError(
+                    code="historical_data_unavailable",
+                    message="Historical analytics are temporarily unavailable.",
+                    retryable=True,
+                    details={"retry_after_seconds": 60},
+                ) from exc
 
         return self._run(
             tool_name=tool_name,

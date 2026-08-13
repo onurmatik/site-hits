@@ -1,4 +1,4 @@
-"""Build the deterministic Contract 1.0.0 service conformance vector bundle."""
+"""Build a deterministic, versioned Agent Contract service conformance bundle."""
 
 from __future__ import annotations
 
@@ -355,7 +355,7 @@ def _scenario_bundle(tool_name: str, tool: dict[str, Any]) -> dict[str, Any]:
             ),
         },
         "uncertain_external_effect": _na(
-            "No SiteHits Contract 1.0.0 public tool has external_effect semantics."
+            "No SiteHits public tool has external_effect semantics."
         ),
         "async_status": _na(
             "The operation completes within one request and does not create a long-running operation."
@@ -546,8 +546,25 @@ def _execution_coverage(scenarios: dict[str, Any]) -> dict[str, Any]:
 
 def build_bundle(contract_path: Path, output_dir: Path) -> dict[str, Any]:
     contract = json.loads(contract_path.read_text())
+    contract_version = contract["agent_contract_version"]
     vector_dir = output_dir / "vectors"
     vector_dir.mkdir(parents=True, exist_ok=True)
+    if contract_version == "1.0.0":
+        vector_schema_reference = "../vector.schema.json"
+    else:
+        vector_schema_reference = "vector.schema.json"
+        template_path = contract_path.parent / "conformance" / "vector.schema.json"
+        vector_schema = json.loads(template_path.read_text())
+        vector_schema["$id"] = (
+            "https://sitehits.io/schemas/agent-contract-vector-"
+            f"{contract_version}.json"
+        )
+        vector_schema["properties"]["agent_contract_version"] = {
+            "const": contract_version
+        }
+        (output_dir / vector_schema_reference).write_bytes(
+            _canonical_bytes(vector_schema)
+        )
     entries = []
     for tool_name, tool in sorted(contract["tools"].items()):
         vector_id = f"{tool_name}-contract-{contract['agent_contract_version']}"
@@ -600,7 +617,7 @@ def build_bundle(contract_path: Path, output_dir: Path) -> dict[str, Any]:
     manifest = {
         "schema_version": 1,
         "agent_contract_version": contract["agent_contract_version"],
-        "vector_schema": "../vector.schema.json",
+        "vector_schema": vector_schema_reference,
         "execution_harness": "tests/test_agent_runtime.py",
         "vectors": entries,
     }
@@ -611,9 +628,12 @@ def build_bundle(contract_path: Path, output_dir: Path) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--contract", default="agent/contract.yaml")
-    parser.add_argument("--output-dir", default="agent/conformance/1.0.0")
+    parser.add_argument("--output-dir")
     args = parser.parse_args()
-    build_bundle(Path(args.contract), Path(args.output_dir))
+    contract_path = Path(args.contract)
+    contract = json.loads(contract_path.read_text())
+    output_dir = Path(args.output_dir or f"agent/conformance/{contract['agent_contract_version']}")
+    build_bundle(contract_path, output_dir)
     return 0
 
 

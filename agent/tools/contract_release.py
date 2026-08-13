@@ -29,11 +29,11 @@ def _bundle_sha256(manifest_path: Path, manifest: dict[str, object]) -> str:
     schema_reference = manifest.get("vector_schema")
     if not isinstance(schema_reference, str):
         raise TypeError("Conformance manifest must declare vector_schema")
-    if schema_reference != "../vector.schema.json":
+    if schema_reference not in {"../vector.schema.json", "vector.schema.json"}:
         raise ValueError("Invalid vector_schema path")
     schema_path = (vector_directory / schema_reference).resolve()
-    allowed_root = vector_directory.parent.resolve()
-    if schema_path.parent != allowed_root or not schema_path.is_file():
+    allowed_parents = {vector_directory.resolve(), vector_directory.parent.resolve()}
+    if schema_path.parent not in allowed_parents or not schema_path.is_file():
         raise ValueError("vector_schema must resolve to the versioned conformance schema")
     bundle_files.append((f"schema/{schema_path.name}", schema_path.read_bytes()))
     for entry in sorted(manifest["vectors"], key=lambda item: item["path"]):
@@ -101,7 +101,7 @@ def canonical_json(value: object) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--contract", default="agent/contract.yaml")
-    parser.add_argument("--vectors", default="agent/conformance/1.0.0/manifest.json")
+    parser.add_argument("--vectors", default="agent/conformance/2.0.0/manifest.json")
     parser.add_argument("--git-commit", required=True)
     parser.add_argument("--output")
     args = parser.parse_args()

@@ -296,3 +296,341 @@ class AgentAuditEvent(models.Model):
 
     def __str__(self):
         return f"{self.tool_name}: {self.outcome_code} ({self.request_id})"
+
+
+class ArchivePartition(models.Model):
+    class Stream(models.TextChoices):
+        ANALYTICS = "analytics", "Analytics events"
+        BOTS = "bots", "Bot events"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        EXPORTED = "exported", "Exported"
+        VERIFIED = "verified", "Verified"
+        DELETING = "deleting", "Deleting source"
+        SOURCE_DELETED = "source_deleted", "Source deleted"
+        SUPERSEDED = "superseded", "Superseded"
+        FAILED = "failed", "Failed"
+
+    class StorageClass(models.TextChoices):
+        STANDARD = "STANDARD", "S3 queryable"
+        GLACIER = "GLACIER", "S3 Glacier"
+
+    generation = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    site = models.ForeignKey(
+        TrackedSite,
+        on_delete=models.SET_NULL,
+        related_name="archive_partitions",
+        null=True,
+        blank=True,
+    )
+    site_id_snapshot = models.PositiveBigIntegerField(db_index=True)
+    stream = models.CharField(max_length=16, choices=Stream.choices)
+    range_start = models.DateTimeField()
+    range_end = models.DateTimeField()
+    timezone = models.CharField(max_length=64)
+    schema_version = models.PositiveSmallIntegerField(default=1)
+    object_key = models.CharField(max_length=1024, blank=True)
+    object_version = models.CharField(max_length=255, blank=True)
+    storage_class = models.CharField(
+        max_length=24,
+        choices=StorageClass.choices,
+        default=StorageClass.STANDARD,
+    )
+    row_count = models.PositiveBigIntegerField(default=0)
+    min_event_id = models.PositiveBigIntegerField(null=True, blank=True)
+    max_event_id = models.PositiveBigIntegerField(null=True, blank=True)
+    min_occurred_at = models.DateTimeField(null=True, blank=True)
+    max_occurred_at = models.DateTimeField(null=True, blank=True)
+    verification_sha256 = models.CharField(max_length=64, blank=True)
+    status = models.CharField(
+        max_length=24,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    error_message = models.CharField(max_length=500, blank=True)
+    exported_at = models.DateTimeField(null=True, blank=True)
+    verified_at = models.DateTimeField(null=True, blank=True)
+    source_deleted_at = models.DateTimeField(null=True, blank=True)
+    transitioned_at = models.DateTimeField(null=True, blank=True)
+    restore_requested_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["range_start", "site_id_snapshot", "stream"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["site_id_snapshot", "stream", "range_start", "range_end"],
+                name="archive_site_stream_range_uniq",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(range_end__gt=models.F("range_start")),
+                name="archive_range_ordered",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["status", "range_end"],
+                name="archive_status_end_idx",
+            ),
+            models.Index(
+                fields=["site_id_snapshot", "stream", "range_start"],
+                name="archive_site_stream_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.site_id_snapshot}:{self.stream}:{self.range_start:%Y-%m} ({self.status})"
+
+
+class DailyAnalyticsRollup(models.Model):
+    site = models.ForeignKey(
+        TrackedSite,
+        on_delete=models.CASCADE,
+        related_name="daily_analytics_rollups",
+    )
+    day = models.DateField()
+    timezone = models.CharField(max_length=64)
+    bucket_start = models.DateTimeField()
+    bucket_end = models.DateTimeField()
+    event_count = models.PositiveBigIntegerField(default=0)
+    browser_event_count = models.PositiveBigIntegerField(default=0)
+    pageview_count = models.PositiveBigIntegerField(default=0)
+    identified_event_count = models.PositiveBigIntegerField(default=0)
+    automated_event_count = models.PositiveBigIntegerField(default=0)
+    metric_value_sum = models.DecimalField(
+        max_digits=30,
+        decimal_places=6,
+        null=True,
+        blank=True,
+    )
+    metric_value_count = models.PositiveBigIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["site", "day"],
+                name="daily_analytics_site_day_uniq",
+            )
+        ]
+        indexes = [models.Index(fields=["site", "day"], name="daily_analytics_day_idx")]
+
+
+class DailyDimensionRollup(models.Model):
+    site = models.ForeignKey(
+        TrackedSite,
+        on_delete=models.CASCADE,
+        related_name="daily_dimension_rollups",
+    )
+    day = models.DateField()
+    timezone = models.CharField(max_length=64)
+    bucket_start = models.DateTimeField()
+    bucket_end = models.DateTimeField()
+    dimension = models.CharField(max_length=32)
+    label = models.CharField(max_length=2048)
+    event_count = models.PositiveBigIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["site", "day", "dimension", "label"],
+                name="daily_dimension_row_uniq",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["site", "dimension", "day"],
+                name="daily_dimension_query_idx",
+            )
+        ]
+
+
+class DailyProductEventRollup(models.Model):
+    site = models.ForeignKey(
+        TrackedSite,
+        on_delete=models.CASCADE,
+        related_name="daily_product_rollups",
+    )
+    day = models.DateField()
+    timezone = models.CharField(max_length=64)
+    bucket_start = models.DateTimeField()
+    bucket_end = models.DateTimeField()
+    event_name = models.CharField(max_length=64)
+    event_count = models.PositiveBigIntegerField(default=0)
+    identified_event_count = models.PositiveBigIntegerField(default=0)
+    value_sum = models.DecimalField(
+        max_digits=30,
+        decimal_places=6,
+        null=True,
+        blank=True,
+    )
+    value_count = models.PositiveBigIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["site", "day", "event_name"],
+                name="daily_product_event_uniq",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["site", "event_name", "day"],
+                name="daily_product_query_idx",
+            )
+        ]
+
+
+class DailyBotRollup(models.Model):
+    site = models.ForeignKey(
+        TrackedSite,
+        on_delete=models.CASCADE,
+        related_name="daily_bot_rollups",
+    )
+    day = models.DateField()
+    timezone = models.CharField(max_length=64)
+    bucket_start = models.DateTimeField()
+    bucket_end = models.DateTimeField()
+    dimension = models.CharField(max_length=24)
+    label = models.CharField(max_length=2048)
+    secondary_label = models.CharField(max_length=255, blank=True)
+    event_count = models.PositiveBigIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["site", "day", "dimension", "label", "secondary_label"],
+                name="daily_bot_dimension_uniq",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["site", "dimension", "day"],
+                name="daily_bot_query_idx",
+            )
+        ]
+
+
+class HistoricalReportCache(models.Model):
+    site = models.ForeignKey(
+        TrackedSite,
+        on_delete=models.CASCADE,
+        related_name="historical_report_cache",
+        null=True,
+        blank=True,
+    )
+    site_selector = models.CharField(max_length=80)
+    report_type = models.CharField(max_length=32)
+    period = models.CharField(max_length=16)
+    parameters_hash = models.CharField(max_length=64)
+    parameters = models.JSONField(default=dict)
+    result = models.JSONField(default=dict)
+    archive_generation = models.CharField(max_length=64)
+    generated_at = models.DateTimeField()
+    expires_at = models.DateTimeField(db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["site_selector", "report_type", "period", "parameters_hash"],
+                name="historical_report_cache_uniq",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["report_type", "period", "expires_at"],
+                name="historical_cache_query_idx",
+            )
+        ]
+
+
+class ColdDataTombstone(models.Model):
+    class Kind(models.TextChoices):
+        ACTOR = "actor", "Actor"
+        SITE = "site", "Site"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        PROCESSED = "processed", "Processed"
+        FAILED = "failed", "Failed"
+
+    site = models.ForeignKey(
+        TrackedSite,
+        on_delete=models.SET_NULL,
+        related_name="cold_data_tombstones",
+        null=True,
+        blank=True,
+    )
+    site_id_snapshot = models.PositiveBigIntegerField(db_index=True)
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    actor_hash = models.CharField(max_length=64, blank=True)
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    error_message = models.CharField(max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["site_id_snapshot", "status", "created_at"],
+                name="cold_tombstone_pending_idx",
+            )
+        ]
+
+
+class ColdDeletionJob(models.Model):
+    class Kind(models.TextChoices):
+        ACTOR = "actor", "Actor"
+        SITE = "site", "Site"
+
+    class Status(models.TextChoices):
+        ACCEPTED = "accepted", "Accepted"
+        RUNNING = "running", "Running"
+        WAITING_RESTORE = "waiting_restore", "Waiting for Glacier restore"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+        UNKNOWN = "unknown", "Unknown"
+
+    request_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    site = models.ForeignKey(
+        TrackedSite,
+        on_delete=models.SET_NULL,
+        related_name="cold_deletion_jobs",
+        null=True,
+        blank=True,
+    )
+    site_id_snapshot = models.PositiveBigIntegerField(db_index=True)
+    kind = models.CharField(max_length=16, choices=Kind.choices, default=Kind.ACTOR)
+    actor_hash = models.CharField(max_length=64, blank=True)
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.ACCEPTED,
+    )
+    deleted_hot_events = models.PositiveBigIntegerField(default=0)
+    rewritten_partitions = models.PositiveIntegerField(default=0)
+    deleted_cold_events = models.PositiveBigIntegerField(default=0)
+    error_message = models.CharField(max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(
+                fields=["status", "created_at"],
+                name="cold_deletion_status_idx",
+            )
+        ]

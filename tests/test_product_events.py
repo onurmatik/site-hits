@@ -181,7 +181,17 @@ def test_forget_actor_deletes_only_that_sites_linked_events(client, tracked_site
     )
 
     assert response.status_code == 200
-    assert response.json() == {"deleted_events": 1}
+    payload = response.json()
+    assert payload["deleted_events"] == 1
+    assert payload["deleted_hot_events"] == 1
+    assert payload["status"] == "accepted"
+    assert payload["request_id"]
+    status = client.get(
+        f"/api/server-events/forget-actor/{payload['request_id']}",
+        HTTP_AUTHORIZATION=f"Bearer {tracked_site.server_event_key}",
+    )
+    assert status.status_code == 200
+    assert status.json()["status"] == "accepted"
     assert list(AnalyticsEvent.objects.values_list("event_name", flat=True)) == ["other"]
 
 

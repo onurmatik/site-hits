@@ -7,6 +7,7 @@ APPLICATION_ERROR_CODES = frozenset(
         "confirmation_required",
         "feature_unavailable",
         "idempotency_conflict",
+        "historical_data_unavailable",
         "internal_error",
         "invalid_input",
         "permission_denied",

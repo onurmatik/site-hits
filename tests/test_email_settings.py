@@ -84,6 +84,9 @@ def test_production_email_backend_uses_ses_v2():
             "AWS_SES_ACCESS_KEY_ID": "ses-access-key",
             "AWS_SES_SECRET_ACCESS_KEY": "ses-secret-key",
             "AWS_SES_REGION_NAME": "eu-west-1",
+            # This test isolates SES settings from the intentionally unreleased
+            # Agent Contract candidate in the source tree.
+            "SITEHITS_ALLOW_UNRELEASED_AGENT_CONTRACT": "true",
         }
     )
 

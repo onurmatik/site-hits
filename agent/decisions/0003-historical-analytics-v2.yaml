@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "decision_record_version": 1,
+  "id": "0003-historical-analytics-v2",
+  "status": "accepted",
+  "date": "2026-08-13",
+  "owner": "Onur",
+  "agent_contract_version": "2.0.0",
+  "title": "Add bounded historical analytics to the SiteHits Agent Contract",
+  "context": "The hot/warm/cold analytics architecture adds six-month and one-year reports, explicit result freshness, and a retryable failure for unavailable historical storage. The existing Contract closes its input enums and output objects, so these otherwise additive runtime capabilities require a major Contract release.",
+  "decisions": [
+    {
+      "id": "historical-periods",
+      "decision": "All existing analytics read tools accept last180d and last365d in addition to the v1 periods. Historical time series resolve to daily buckets. No raw event rows, actor identifiers, Parquet access, or user-authored SQL is exposed."
+    },
+    {
+      "id": "freshness",
+      "decision": "Analytics outputs may include freshness with source hot, hybrid, or cache, an RFC 3339 generated_at timestamp, and is_stale. The field is optional at the Contract boundary and always emitted by the v2 runtime."
+    },
+    {
+      "id": "bounded-failure",
+      "decision": "Historical reads use a bounded synchronous query and may return retryable historical_data_unavailable with retry_after_seconds when neither the live query nor a generation-compatible cache can answer. They never substitute an empty report for unavailable storage."
+    },
+    {
+      "id": "compatibility-window",
+      "decision": "Contract v2 retains every v1 tool, required input, authorization dimension, approval, and error meaning. V1 periods remain supported for at least 180 days after the immutable v2 release. The MCP runtime is an additive behavioral superset; v2 freshness is optional semantic metadata for consumers."
+    },
+    {
+      "id": "release-order",
+      "decision": "The v2 Agent Contract and conformance bundle are implemented first. MCP, standalone skill, and plugin mappings are updated in that order. No immutable Contract tag, MCP release descriptor, deploy, or plugin publication is implied by this implementation change."
+    }
+  ],
+  "migration_plan": [
+    "Run v2 conformance and runtime suites while preserving the immutable v1 Contract descriptor and conformance bundle.",
+    "Enable archive-only shadow export, compare historical reports with PostgreSQL source results, then enable historical reads.",
+    "Enable source deletion only after verified archive manifests and deletion-safety acceptance tests are green.",
+    "Create the immutable v2 Contract descriptor and annotated tag only from the final committed release candidate."
+  ],
+  "rollback_plan": [
+    "Disable historical reads without disabling hot reports or archive shadow export.",
+    "Disable source deletion while retaining verified manifests and PostgreSQL rows.",
+    "If v2 has not been immutably released, revert the candidate Contract and implementation together; after release, issue a compatible corrective release instead of rewriting artifacts."
+  ],
+  "consequences": [
+    "Production remains fail-closed on the v1 pinned Contract until a separate explicit release action seals the v2 descriptor and updates runtime pins.",
+    "Historical availability is observable and retryable rather than silently represented as zero traffic.",
+    "The standalone skill and plugin require new versions before publication, but publication and deployment remain separate operations."
+  ]
+}

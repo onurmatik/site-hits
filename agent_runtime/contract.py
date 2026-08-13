@@ -95,11 +95,15 @@ def pinned_contract_identity() -> PinnedContractIdentity:
 def load_contract() -> dict[str, Any]:
     path = Path(settings.BASE_DIR) / "agent" / "contract.yaml"
     contract, raw = _read_json_object(path, label="canonical Agent Contract")
-    identity = pinned_contract_identity()
-    if f"sha256:{hashlib.sha256(raw).hexdigest()}" != identity.contract_sha256:
-        raise RuntimeError("The loaded Agent Contract differs from its pinned content.")
-    if contract.get("agent_contract_version") != identity.version:
-        raise RuntimeError("The loaded Agent Contract differs from its pinned identity.")
+    allow_unreleased = bool(
+        getattr(settings, "SITEHITS_ALLOW_UNRELEASED_AGENT_CONTRACT", False)
+    )
+    if not allow_unreleased:
+        identity = pinned_contract_identity()
+        if f"sha256:{hashlib.sha256(raw).hexdigest()}" != identity.contract_sha256:
+            raise RuntimeError("The loaded Agent Contract differs from its pinned content.")
+        if contract.get("agent_contract_version") != identity.version:
+            raise RuntimeError("The loaded Agent Contract differs from its pinned identity.")
     schema_path = path.with_name("contract.schema.json")
     try:
         schema = json.loads(schema_path.read_text(encoding="utf-8"))

@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh SiteHits historical analytics cache hourly
+
+[Timer]
+OnBootSec=20m
+OnUnitActiveSec=1h
+Persistent=true
+RandomizedDelaySec=10m
+Unit=sitehits-historical-cache.service
+
+[Install]
+WantedBy=timers.target

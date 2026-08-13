@@ -122,7 +122,26 @@ Authenticated users can access analytics for their own tracked sites. Superusers
 - `GET /api/analytics/product-metrics` (requires one selected site)
 - `GET /api/analytics/breakdowns/{pages|referrers|countries|regions|cities|devices|browsers|os|campaigns|events}`
 
-Common query parameters are `site=all|<slug>`, `period=today|last24h|last7d|last30d|last90d`, and `granularity=auto|hourly|daily` for time series.
+Common query parameters are `site=all|<slug>`,
+`period=today|last24h|last7d|last30d|last90d|last180d|last365d`, and
+`granularity=auto|hourly|daily` for time series. Six-month and one-year responses use daily
+timeseries buckets and may include an optional `freshness` object with `source=hot|hybrid|cache`,
+`generated_at`, and `is_stale`. If neither a fresh result nor a generation-safe cached result can
+be produced, the API returns `historical_data_unavailable` instead of a misleading zero result.
+
+### Historical analytics storage
+
+SiteHits keeps raw events in PostgreSQL for at least 90 days and compacts only complete local
+calendar months whose UTC end is older than that boundary. This produces an effective hot window
+of 90–121 days. Verified monthly archives are ZSTD Parquet objects in private, versioned,
+SSE-KMS S3 storage. Additive daily rollups and hourly report caches remain in PostgreSQL; exact
+historical visitors, sessions, bounce, duration, activation, and suspected-automation metrics are
+computed by a per-worker in-memory DuckDB query over hot PostgreSQL plus cold Parquet.
+
+Objects remain directly queryable for two years, transition to Glacier for the third year, and are
+permanently deleted with every object version after three years, all using manifest event-time
+boundaries. See [the analytics archive runbook](docs/runbooks/analytics-archive.md) for rollout,
+IAM, timers, deletion behavior, and recovery procedures.
 
 Each selected-site dashboard also provides an **Embed widget** action. It generates a public iframe showing aggregate distinct visitors, minute activity, and the top three countries for the last 60 minutes. The widget URL uses the site's public tracking key, refreshes every minute, and intentionally excludes paths, referrers, sessions, and custom-event details.
 
@@ -201,7 +220,10 @@ Copy `.env.example` and supply real secrets. Important details:
 - Provision a MaxMind GeoLite2 City database and set `SITEHITS_GEOIP_DB_PATH`. The checked-in deploy task installs and periodically runs `geoipupdate`; `manage.py check --deploy` fails if the configured database is missing, invalid, or the wrong MMDB type. Existing events are not location-backfilled because raw IP addresses are never stored.
 - Production must use PostgreSQL 17, matching the concurrency acceptance suite. `manage.py check --deploy` opens the configured database and rejects any other engine or major version.
 - Run the collector over HTTPS. Configure the reverse proxy to limit request rates and cap `/api/events` bodies.
-- Schedule `python manage.py purge_old_events --days 365` daily.
+- Install the daily `sitehits-archive-maintenance.timer`, hourly
+  `sitehits-historical-cache.timer`, and existing daily metadata cleanup timer. The
+  `purge_old_events` command now removes only expired audit/idempotency metadata; raw analytics
+  deletion is permitted only through a verified archive manifest.
 - Set `SITEHITS_MCP_TOKEN_SECRET` to an independent long-lived HMAC key for security-event and
   rate-limit pseudonyms. OAuth credentials are stored with one-way SHA-256 digests and do not
   depend on this key.

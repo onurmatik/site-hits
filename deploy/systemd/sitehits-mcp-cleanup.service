@@ -1,5 +1,5 @@
 [Unit]
-Description=SiteHits daily MCP/OAuth and audit retention cleanup
+Description=SiteHits daily MCP/OAuth and audit metadata cleanup
 After=postgresql.service
 OnFailure=sitehits-mcp-alert@%n.service
 
@@ -9,6 +9,6 @@ WorkingDirectory=/srv/apps/sitehits
 EnvironmentFile=/srv/apps/sitehits/.env
 ExecStartPre=/srv/apps/sitehits/deploy/validate-image-ref.sh
 ExecStart=/usr/bin/docker run --rm --network host --env-file /srv/apps/sitehits/.env --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m --cap-drop ALL --security-opt no-new-privileges ${SITEHITS_MCP_IMAGE_REF} python manage.py cleanup_mcp_oauth --batch-size 500 --max-batches 20
-ExecStart=/usr/bin/docker run --rm --network host --env-file /srv/apps/sitehits/.env --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m --cap-drop ALL --security-opt no-new-privileges ${SITEHITS_MCP_IMAGE_REF} python manage.py purge_old_events --days 365
+ExecStart=/usr/bin/docker run --rm --network host --env-file /srv/apps/sitehits/.env --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m --cap-drop ALL --security-opt no-new-privileges ${SITEHITS_MCP_IMAGE_REF} python manage.py purge_old_events
 NoNewPrivileges=true
 PrivateTmp=true

@@ -9,9 +9,9 @@ from .registry import build_deployment_registry, registry_sha256
 from .release_identity import SERVER_VERSION
 
 AGENT_CONTRACT_VERSION = contract_version()
-SKILL_VERSION = "1.0.0"
+SKILL_VERSION = "2.0.0"
 MINIMUM_SKILL_VERSION = "1.0.0"
-PLUGIN_VERSION = "0.2.0"
+PLUGIN_VERSION = "0.3.0"
 
 SEMVER_PATTERN = re.compile(
     r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"

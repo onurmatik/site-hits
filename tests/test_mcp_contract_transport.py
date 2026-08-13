@@ -47,7 +47,7 @@ pytestmark = pytest.mark.django_db(transaction=True)
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "agent" / "contract.yaml"
-MANIFEST_DIR = ROOT / "agent" / "conformance" / "1.0.0"
+MANIFEST_DIR = ROOT / "agent" / "conformance" / "2.0.0"
 MANIFEST_PATH = MANIFEST_DIR / "manifest.json"
 RESOURCE = settings.SITEHITS_MCP_RESOURCE_URL
 BASE_URL = settings.SITEHITS_BASE_URL

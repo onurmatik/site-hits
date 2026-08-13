@@ -14,7 +14,6 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.utils import timezone
-from jsonschema import Draft202012Validator
 
 from mcp_gateway import release
 from mcp_gateway.checks import _stage1_database_errors
@@ -93,7 +92,7 @@ def _smoke_evidence(contract, *, commit, image_digest):
     }
 
 
-def test_release_descriptor_is_strict_deterministic_and_pins_stage0(tmp_path):
+def test_unreleased_contract_candidate_cannot_reuse_stage0_descriptor(tmp_path):
     contract = _load(CONTRACT_PATH)
     commit = "0123456789abcdef0123456789abcdef01234567"
     image_digest = f"sha256:{'a' * 64}"
@@ -101,63 +100,17 @@ def test_release_descriptor_is_strict_deterministic_and_pins_stage0(tmp_path):
     evidence_path.write_text(
         json.dumps(_smoke_evidence(contract, commit=commit, image_digest=image_digest))
     )
-    first = release.build_descriptor(
-        server_version="0.2.0",
-        contract_path=CONTRACT_PATH,
-        contract_descriptor_path=CONTRACT_DESCRIPTOR_PATH,
-        git_commit=commit,
-        image_digest=image_digest,
-        smoke_evidence_path=evidence_path,
-    )
-    second = release.build_descriptor(
-        server_version="0.2.0",
-        contract_path=CONTRACT_PATH,
-        contract_descriptor_path=CONTRACT_DESCRIPTOR_PATH,
-        git_commit=commit,
-        image_digest=image_digest,
-        smoke_evidence_path=evidence_path,
-    )
-    assert first == second
-    assert release.canonical_json(first) == release.canonical_json(second)
-    schema = _load(MCP_RELEASE_SCHEMA_PATH)
-    Draft202012Validator.check_schema(schema)
-    Draft202012Validator(schema).validate(first)
-    assert first["oauth"] == {
-        "issuer": "https://sitehits.io",
-        "resource": "https://sitehits.io/mcp",
-    }
-    assert first["agent_contract"]["supported_versions"] == ["1.0.0"]
-    assert first["agent_contract"]["descriptor_sha256"] == (
-        f"sha256:{hashlib.sha256(CONTRACT_DESCRIPTOR_PATH.read_bytes()).hexdigest()}"
-    )
-    assert first["smoke"]["client"].startswith("ChatGPT ")
-    assert "; Codex " in first["smoke"]["client"]
-    assert "; Claude/Claude Desktop " in first["smoke"]["client"]
-    assert "; Claude Code " in first["smoke"]["client"]
-    assert first["client_compatibility_sha256"] == (
-        f"sha256:{hashlib.sha256(CLIENT_COMPATIBILITY_PATH.read_bytes()).hexdigest()}"
-    )
-    assert [record["client"] for record in first["client_acceptance"]] == [
-        "chatgpt",
-        "codex",
-        "claude",
-        "claude-code",
-        "mcp-inspector",
-    ]
-    assert first["client_acceptance"][3]["callback_profile"] == (
-        "localhost-loopback-dynamic-port"
-    )
-    assert first["client_acceptance"][3]["status"] == "passed"
-    assert first["client_acceptance"][4]["status"] == "diagnostic-passed"
-    assert all(
-        record["registration_method"] == "cimd"
-        and record["fallback_registration_method"] == "dcr"
-        for record in first["client_acceptance"]
-    )
-    assert first["smoke"]["evidence_sha256"] == (
-        f"sha256:{hashlib.sha256(evidence_path.read_bytes()).hexdigest()}"
-    )
-    assert "mcp_contract_version" not in json.dumps(first)
+    assert contract["agent_contract_version"] == "2.0.0"
+    assert _load(CONTRACT_DESCRIPTOR_PATH)["agent_contract_version"] == "1.0.0"
+    with pytest.raises(ValueError, match="not the pinned Agent Contract release"):
+        release.build_descriptor(
+            server_version="0.2.0",
+            contract_path=CONTRACT_PATH,
+            contract_descriptor_path=CONTRACT_DESCRIPTOR_PATH,
+            git_commit=commit,
+            image_digest=image_digest,
+            smoke_evidence_path=evidence_path,
+        )
 
 
 def test_pinned_runtime_dependencies_and_shared_adapter_public_seam():
@@ -252,10 +205,27 @@ def test_release_registry_is_contract_derived_exact_and_content_addressed():
     )
 
 
-def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path):
+def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path, monkeypatch):
     contract = _load(CONTRACT_PATH)
     commit = "0123456789abcdef0123456789abcdef01234567"
     image_digest = f"sha256:{'b' * 64}"
+    candidate_descriptor = _load(CONTRACT_DESCRIPTOR_PATH)
+    candidate_descriptor["agent_contract_version"] = contract["agent_contract_version"]
+    candidate_descriptor["contract_sha256"] = hashlib.sha256(
+        CONTRACT_PATH.read_bytes()
+    ).hexdigest()
+    candidate_descriptor_path = tmp_path / "candidate-contract-release.json"
+    candidate_descriptor_path.write_text(json.dumps(candidate_descriptor))
+    monkeypatch.setattr(
+        release,
+        "PINNED_AGENT_CONTRACT_SHA256",
+        hashlib.sha256(CONTRACT_PATH.read_bytes()).hexdigest(),
+    )
+    monkeypatch.setattr(
+        release,
+        "PINNED_AGENT_CONTRACT_DESCRIPTOR_SHA256",
+        hashlib.sha256(candidate_descriptor_path.read_bytes()).hexdigest(),
+    )
     evidence = _smoke_evidence(contract, commit=commit, image_digest=image_digest)
     evidence["clients"].pop("Codex")
     evidence_path = tmp_path / "missing-client.json"
@@ -267,7 +237,7 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path):
         release.build_descriptor(
             server_version="0.2.0",
             contract_path=CONTRACT_PATH,
-            contract_descriptor_path=CONTRACT_DESCRIPTOR_PATH,
+            contract_descriptor_path=candidate_descriptor_path,
             git_commit=commit,
             image_digest=image_digest,
             smoke_evidence_path=evidence_path,
@@ -280,7 +250,7 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path):
         release.build_descriptor(
             server_version="0.2.0",
             contract_path=CONTRACT_PATH,
-            contract_descriptor_path=CONTRACT_DESCRIPTOR_PATH,
+            contract_descriptor_path=candidate_descriptor_path,
             git_commit=commit,
             image_digest=image_digest,
             smoke_evidence_path=evidence_path,
@@ -293,7 +263,7 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path):
         release.build_descriptor(
             server_version="0.2.0",
             contract_path=CONTRACT_PATH,
-            contract_descriptor_path=CONTRACT_DESCRIPTOR_PATH,
+            contract_descriptor_path=candidate_descriptor_path,
             git_commit=commit,
             image_digest=image_digest,
             smoke_evidence_path=evidence_path,
@@ -309,7 +279,7 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path):
         release.build_descriptor(
             server_version="0.2.0",
             contract_path=CONTRACT_PATH,
-            contract_descriptor_path=CONTRACT_DESCRIPTOR_PATH,
+            contract_descriptor_path=candidate_descriptor_path,
             git_commit=commit,
             image_digest=image_digest,
             smoke_evidence_path=evidence_path,
@@ -322,7 +292,7 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path):
         release.build_descriptor(
             server_version="0.2.0",
             contract_path=CONTRACT_PATH,
-            contract_descriptor_path=CONTRACT_DESCRIPTOR_PATH,
+            contract_descriptor_path=candidate_descriptor_path,
             git_commit=commit,
             image_digest=image_digest,
             smoke_evidence_path=evidence_path,
@@ -340,13 +310,13 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path):
         release.build_descriptor(
             server_version="0.2.0",
             contract_path=tampered_contract_path,
-            contract_descriptor_path=CONTRACT_DESCRIPTOR_PATH,
+            contract_descriptor_path=candidate_descriptor_path,
             git_commit=commit,
             image_digest=image_digest,
             smoke_evidence_path=evidence_path,
         )
 
-    upstream = _load(CONTRACT_DESCRIPTOR_PATH)
+    upstream = _load(candidate_descriptor_path)
     upstream["compatibility_strategy"] = "tampered"
     upstream_path.write_text(json.dumps(upstream))
     with pytest.raises(ValueError, match="pinned immutable artifact"):

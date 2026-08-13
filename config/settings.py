@@ -86,6 +86,13 @@ def validate_cors_origins(origins):
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "unsafe-local-sitehits-secret")
 DEBUG = os.environ.get("DJANGO_DEBUG", "true").lower() in {"1", "true", "yes"}
+SITEHITS_ALLOW_UNRELEASED_AGENT_CONTRACT = (
+    os.environ.get(
+        "SITEHITS_ALLOW_UNRELEASED_AGENT_CONTRACT",
+        "true" if DEBUG else "false",
+    ).lower()
+    in {"1", "true", "yes"}
+)
 ALLOWED_HOSTS = [
     host.strip()
     for host in os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1,testserver").split(",")
@@ -326,6 +333,81 @@ if not DEBUG and not SITEHITS_TRUST_PROXY_HEADERS:
         "Stage 1 production requires trusted reverse-proxy headers."
     )
 SITEHITS_MAX_EVENT_BYTES = int(os.environ.get("SITEHITS_MAX_EVENT_BYTES", "16384"))
+SITEHITS_ARCHIVE_ENABLED = os.environ.get(
+    "SITEHITS_ARCHIVE_ENABLED", "false"
+).lower() in {"1", "true", "yes"}
+SITEHITS_ARCHIVE_DELETE_SOURCE = os.environ.get(
+    "SITEHITS_ARCHIVE_DELETE_SOURCE", "false"
+).lower() in {"1", "true", "yes"}
+SITEHITS_ARCHIVE_QUERY_ENABLED = os.environ.get(
+    "SITEHITS_ARCHIVE_QUERY_ENABLED", "false"
+).lower() in {"1", "true", "yes"}
+SITEHITS_ARCHIVE_BUCKET = os.environ.get("SITEHITS_ARCHIVE_BUCKET", "").strip()
+SITEHITS_ARCHIVE_PREFIX = os.environ.get("SITEHITS_ARCHIVE_PREFIX", "sitehits").strip("/")
+SITEHITS_ARCHIVE_REGION = env_value(
+    "SITEHITS_ARCHIVE_REGION",
+    "AWS_DEFAULT_REGION",
+).strip()
+SITEHITS_ARCHIVE_ENDPOINT = os.environ.get("SITEHITS_ARCHIVE_ENDPOINT", "").strip()
+SITEHITS_ARCHIVE_KMS_KEY_ID = os.environ.get(
+    "SITEHITS_ARCHIVE_KMS_KEY_ID", ""
+).strip()
+SITEHITS_ARCHIVE_HOT_DAYS = int(os.environ.get("SITEHITS_ARCHIVE_HOT_DAYS", "90"))
+SITEHITS_ARCHIVE_QUERYABLE_DAYS = int(
+    os.environ.get("SITEHITS_ARCHIVE_QUERYABLE_DAYS", "730")
+)
+SITEHITS_ARCHIVE_RETENTION_DAYS = int(
+    os.environ.get("SITEHITS_ARCHIVE_RETENTION_DAYS", "1095")
+)
+SITEHITS_HISTORICAL_CACHE_SECONDS = int(
+    os.environ.get("SITEHITS_HISTORICAL_CACHE_SECONDS", "3600")
+)
+SITEHITS_HISTORICAL_QUERY_TIMEOUT_SECONDS = float(
+    os.environ.get("SITEHITS_HISTORICAL_QUERY_TIMEOUT_SECONDS", "15")
+)
+SITEHITS_HISTORICAL_QUERY_CONCURRENCY = int(
+    os.environ.get("SITEHITS_HISTORICAL_QUERY_CONCURRENCY", "1")
+)
+
+if SITEHITS_ARCHIVE_HOT_DAYS < 90:
+    raise ImproperlyConfigured("SITEHITS_ARCHIVE_HOT_DAYS must be at least 90.")
+if SITEHITS_ARCHIVE_QUERYABLE_DAYS < 730:
+    raise ImproperlyConfigured(
+        "SITEHITS_ARCHIVE_QUERYABLE_DAYS must be at least 730 for prior-period yearly comparisons."
+    )
+if SITEHITS_ARCHIVE_RETENTION_DAYS < SITEHITS_ARCHIVE_QUERYABLE_DAYS:
+    raise ImproperlyConfigured(
+        "SITEHITS_ARCHIVE_RETENTION_DAYS must not be shorter than the queryable window."
+    )
+if SITEHITS_HISTORICAL_QUERY_CONCURRENCY != 1:
+    raise ImproperlyConfigured(
+        "SITEHITS_HISTORICAL_QUERY_CONCURRENCY must be 1 per worker."
+    )
+if SITEHITS_ARCHIVE_DELETE_SOURCE and not SITEHITS_ARCHIVE_ENABLED:
+    raise ImproperlyConfigured(
+        "SITEHITS_ARCHIVE_DELETE_SOURCE requires SITEHITS_ARCHIVE_ENABLED."
+    )
+if SITEHITS_ARCHIVE_QUERY_ENABLED and not SITEHITS_ARCHIVE_ENABLED:
+    raise ImproperlyConfigured(
+        "SITEHITS_ARCHIVE_QUERY_ENABLED requires SITEHITS_ARCHIVE_ENABLED."
+    )
+if SITEHITS_ARCHIVE_ENABLED:
+    missing_archive_settings = [
+        name
+        for name, value in {
+            "SITEHITS_ARCHIVE_BUCKET": SITEHITS_ARCHIVE_BUCKET,
+            "SITEHITS_ARCHIVE_REGION": SITEHITS_ARCHIVE_REGION,
+        }.items()
+        if not value
+    ]
+    if not DEBUG and not SITEHITS_ARCHIVE_KMS_KEY_ID:
+        missing_archive_settings.append("SITEHITS_ARCHIVE_KMS_KEY_ID")
+    if missing_archive_settings:
+        raise ImproperlyConfigured(
+            "Archive storage requires: " + ", ".join(missing_archive_settings)
+        )
+if not SITEHITS_ARCHIVE_PREFIX or ".." in SITEHITS_ARCHIVE_PREFIX.split("/"):
+    raise ImproperlyConfigured("SITEHITS_ARCHIVE_PREFIX must be a safe non-empty prefix.")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
 SITEHITS_GOAL_PLANNING_MODEL = os.environ.get(
     "SITEHITS_GOAL_PLANNING_MODEL",

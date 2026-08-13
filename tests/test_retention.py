@@ -10,7 +10,7 @@ from analytics.models import AgentAuditEvent, AgentIdempotencyRecord, AnalyticsE
 
 
 @pytest.mark.django_db
-def test_retention_command_deletes_only_expired_events(tracked_site):
+def test_retention_command_preserves_events_for_verified_archive_cleanup(tracked_site):
     common = {
         "site": tracked_site,
         "event_type": "pageview",
@@ -58,7 +58,7 @@ def test_retention_command_deletes_only_expired_events(tracked_site):
     AgentIdempotencyRecord.objects.update(expires_at=timezone.now() - timedelta(seconds=1))
     service.list_sites()
     call_command("purge_old_events", days=365)
-    assert AnalyticsEvent.objects.count() == 1
-    assert BotEvent.objects.count() == 1
+    assert AnalyticsEvent.objects.count() == 2
+    assert BotEvent.objects.count() == 2
     assert AgentAuditEvent.objects.count() == 1
     assert AgentIdempotencyRecord.objects.count() == 0

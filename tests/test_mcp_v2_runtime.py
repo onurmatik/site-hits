@@ -107,6 +107,7 @@ def test_runtime_rejects_joint_contract_and_descriptor_tampering(tmp_path):
     descriptor_path = release_dir / "contract-release.json"
     contract = json.loads((root / "agent" / "contract.yaml").read_text())
     descriptor = json.loads((root / "release" / "contract-release.json").read_text())
+    contract["agent_contract_version"] = "1.0.0"
     contract["server_instructions"]["summary"] += " Tampered."
     contract_bytes = (json.dumps(contract, indent=2, ensure_ascii=False) + "\n").encode()
     contract_path.write_bytes(contract_bytes)

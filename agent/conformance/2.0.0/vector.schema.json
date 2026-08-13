@@ -1,0 +1,363 @@
+{
+  "$defs": {
+    "applicable": {
+      "additionalProperties": false,
+      "properties": {
+        "applicable": {
+          "const": true
+        },
+        "audit_override": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "authorization_override": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "context_override": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "expected": {
+          "$ref": "#/$defs/expected"
+        },
+        "input": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "applicable",
+        "input",
+        "expected"
+      ],
+      "type": "object"
+    },
+    "audit": {
+      "additionalProperties": false,
+      "properties": {
+        "forbidden_fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "input_recording": {
+          "const": "keyed_hash"
+        },
+        "profile": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "required_fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "profile",
+        "input_recording",
+        "required_fields",
+        "forbidden_fields"
+      ],
+      "type": "object"
+    },
+    "authorization": {
+      "additionalProperties": false,
+      "properties": {
+        "authenticated": {
+          "type": "boolean"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "limits": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "plan_label": {
+          "type": "string"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "authenticated",
+        "scopes",
+        "capabilities",
+        "limits"
+      ],
+      "type": "object"
+    },
+    "context": {
+      "additionalProperties": false,
+      "properties": {
+        "authenticated_actor_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "authenticated_client_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "ownership": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "tenant_id": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "authenticated_actor_id",
+        "authenticated_client_id",
+        "tenant_id"
+      ],
+      "type": "object"
+    },
+    "expected": {
+      "additionalProperties": false,
+      "properties": {
+        "assertions": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "audit_outcome_code": {
+          "type": "string"
+        },
+        "cases": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "error_code": {
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "success",
+            "error",
+            "matrix",
+            "concurrent_results"
+          ]
+        },
+        "result_schema_ref": {
+          "type": "string"
+        },
+        "results": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "outcome",
+        "audit_outcome_code"
+      ],
+      "type": "object"
+    },
+    "not_applicable": {
+      "additionalProperties": false,
+      "properties": {
+        "applicable": {
+          "const": false
+        },
+        "reason": {
+          "minLength": 12,
+          "type": "string"
+        }
+      },
+      "required": [
+        "applicable",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "scenario": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/applicable"
+        },
+        {
+          "$ref": "#/$defs/not_applicable"
+        }
+      ]
+    }
+  },
+  "$id": "https://sitehits.io/schemas/agent-contract-vector-2.0.0.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "agent_contract_version": {
+      "const": "2.0.0"
+    },
+    "defaults": {
+      "additionalProperties": false,
+      "properties": {
+        "audit": {
+          "$ref": "#/$defs/audit"
+        },
+        "authorization_context": {
+          "$ref": "#/$defs/authorization"
+        },
+        "context": {
+          "$ref": "#/$defs/context"
+        }
+      },
+      "required": [
+        "context",
+        "authorization_context",
+        "audit"
+      ],
+      "type": "object"
+    },
+    "execution_coverage": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "basis": {
+            "minLength": 12,
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "per_tool_vector",
+              "shared_service_mechanism",
+              "contract_inapplicability"
+            ]
+          },
+          "tests": {
+            "items": {
+              "pattern": "^tests/test_agent_runtime.py::test_[a-z0-9_]+$",
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "mode",
+          "basis",
+          "tests"
+        ],
+        "type": "object"
+      },
+      "required": [
+        "success",
+        "invalid_input",
+        "missing_capability",
+        "ownership_isolation",
+        "capability_plan_matrix",
+        "quota_concurrency",
+        "idempotent_replay",
+        "idempotency_conflict",
+        "approval",
+        "uncertain_external_effect",
+        "redaction",
+        "async_status",
+        "internal_error"
+      ],
+      "type": "object"
+    },
+    "id": {
+      "pattern": "^[a-z0-9][a-z0-9._-]+$",
+      "type": "string"
+    },
+    "scenarios": {
+      "additionalProperties": false,
+      "properties": {
+        "approval": {
+          "$ref": "#/$defs/scenario"
+        },
+        "async_status": {
+          "$ref": "#/$defs/scenario"
+        },
+        "capability_plan_matrix": {
+          "$ref": "#/$defs/scenario"
+        },
+        "idempotency_conflict": {
+          "$ref": "#/$defs/scenario"
+        },
+        "idempotent_replay": {
+          "$ref": "#/$defs/scenario"
+        },
+        "internal_error": {
+          "$ref": "#/$defs/scenario"
+        },
+        "invalid_input": {
+          "$ref": "#/$defs/scenario"
+        },
+        "missing_capability": {
+          "$ref": "#/$defs/scenario"
+        },
+        "ownership_isolation": {
+          "$ref": "#/$defs/scenario"
+        },
+        "quota_concurrency": {
+          "$ref": "#/$defs/scenario"
+        },
+        "redaction": {
+          "$ref": "#/$defs/scenario"
+        },
+        "success": {
+          "$ref": "#/$defs/scenario"
+        },
+        "uncertain_external_effect": {
+          "$ref": "#/$defs/scenario"
+        }
+      },
+      "required": [
+        "success",
+        "invalid_input",
+        "missing_capability",
+        "ownership_isolation",
+        "capability_plan_matrix",
+        "quota_concurrency",
+        "idempotent_replay",
+        "idempotency_conflict",
+        "approval",
+        "uncertain_external_effect",
+        "redaction",
+        "async_status",
+        "internal_error"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "tool": {
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "agent_contract_version",
+    "tool",
+    "defaults",
+    "execution_coverage",
+    "scenarios"
+  ],
+  "type": "object"
+}

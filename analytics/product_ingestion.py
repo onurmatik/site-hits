@@ -2,24 +2,24 @@ import hashlib
 import hmac
 import logging
 import re
-from datetime import timedelta, timezone as datetime_timezone
+from datetime import UTC, timedelta
 from decimal import Decimal
 
 import jwt
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
 from websites.models import TrackedSite
 
-from .models import ActivationDefinition, AnalyticsEvent, ProductEventDefinition
+from .archive import create_cold_deletion
+from .models import ActivationDefinition, AnalyticsEvent, ColdDeletionJob, ProductEventDefinition
 from .privacy import EVENT_NAME_PATTERN, sanitized_properties
-
 
 logger = logging.getLogger("sitehits.product_collector")
 COLLECTOR_HEARTBEAT_INTERVAL = timedelta(minutes=5)
 ACTOR_HASH_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-MAX_METRIC_VALUE = Decimal("100000000000000")
+MAX_METRIC_VALUE = Decimal(100000000000000)
 
 
 class ProductAuthenticationError(ValueError):
@@ -116,7 +116,7 @@ def _occurred_at(value, now):
     occurred_at = value or now
     if occurred_at.tzinfo is None:
         raise ProductIngestionError("Event timestamp must include a timezone.")
-    occurred_at = occurred_at.astimezone(datetime_timezone.utc)
+    occurred_at = occurred_at.astimezone(UTC)
     if occurred_at > now + timedelta(minutes=5) or occurred_at < now - timedelta(days=7):
         raise ProductIngestionError("Event timestamp is outside the accepted window.")
     return occurred_at
@@ -231,5 +231,15 @@ def ingest_server_event(request, payload):
 def forget_actor(request, actor_id):
     site = authenticated_product_site(request)
     actor_hash = actor_hash_for_site(site, actor_id)
-    deleted, _ = AnalyticsEvent.objects.filter(site=site, actor_hash=actor_hash).delete()
-    return deleted
+    with transaction.atomic():
+        deleted, _ = AnalyticsEvent.objects.filter(site=site, actor_hash=actor_hash).delete()
+        job, _ = create_cold_deletion(site, actor_hash, deleted)
+    return job
+
+
+def cold_deletion_status(request, request_id):
+    site = authenticated_product_site(request)
+    try:
+        return ColdDeletionJob.objects.get(request_id=request_id, site_id_snapshot=site.pk)
+    except (ColdDeletionJob.DoesNotExist, ValueError) as exc:
+        raise ProductIngestionError("Unknown deletion request.") from exc

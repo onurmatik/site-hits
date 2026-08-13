@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "sitehits",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Privacy-conscious SiteHits analytics, measurement, and tracking tools.",
   "author": {
     "name": "SiteHits"

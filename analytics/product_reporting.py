@@ -5,8 +5,13 @@ from django.db.models import Avg, Count, Min, Q, Sum
 from django.utils import timezone
 
 from .automation import EXPLICIT_AUTOMATION_SCORE_THRESHOLD
+from .cold_reporting import (
+    HISTORICAL_PERIODS,
+    cached_historical_report,
+    historical_product_metrics,
+)
 from .models import ActivationDefinition, AnalyticsEvent, ProductEventDefinition
-from .reporting import event_queryset, resolve_period, selected_site
+from .reporting import _freshness, event_queryset, resolve_period, selected_site
 
 
 def _decimal_string(value):
@@ -126,6 +131,22 @@ def product_metrics(site_slug, period, sites=None):
         raise ValueError("Product metrics require a selected site.")
     site = selected_site(site_slug, sites)
     ranges = resolve_period(period, site)
+    if period in HISTORICAL_PERIODS:
+
+        def produce():
+            result = historical_product_metrics(site, ranges)
+            result["period"] = period
+            return result
+
+        return cached_historical_report(
+            report_type="product_metrics",
+            site_selector=site_slug,
+            site=site,
+            site_ids=[site.pk],
+            period=period,
+            parameters={"site": site_slug},
+            producer=produce,
+        )
     definitions = list(ProductEventDefinition.objects.filter(site=site))
     definition_names = [definition.event_name for definition in definitions]
     queryset = event_queryset(site, ranges.start, ranges.end, sites).filter(
@@ -203,4 +224,5 @@ def product_metrics(site_slug, period, sites=None):
         "activation": _activation_metrics(site, ranges),
         "metrics": metrics,
         "warnings": warnings,
+        "freshness": _freshness("hot"),
     }

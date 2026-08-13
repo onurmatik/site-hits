@@ -1,0 +1,118 @@
+{
+  "agent_contract_version": "2.0.0",
+  "execution_harness": "tests/test_agent_runtime.py",
+  "schema_version": 1,
+  "vector_schema": "vector.schema.json",
+  "vectors": [
+    {
+      "id": "change_measurement_event_contract-contract-2.0.0",
+      "path": "vectors/change_measurement_event_contract.json",
+      "sha256": "42b8bb98695d26714794a59fbec03c1e19057f7c71e8a577711202edabb09dfe"
+    },
+    {
+      "id": "clear_activation-contract-2.0.0",
+      "path": "vectors/clear_activation.json",
+      "sha256": "88a7bc07c301c2177bb450e924b7b7922c43e9d2f6754daaf60031e5a1ace8b1"
+    },
+    {
+      "id": "create_measurement_event-contract-2.0.0",
+      "path": "vectors/create_measurement_event.json",
+      "sha256": "faf16ad454e8ffd1a64bf152f97a1141d3933c50493ed1969e88f792022cfb95"
+    },
+    {
+      "id": "create_site-contract-2.0.0",
+      "path": "vectors/create_site.json",
+      "sha256": "bcffd0af2b59936ad57e5e551902d22bba1ac1e1b86ab9d5492229a145a2dd2d"
+    },
+    {
+      "id": "delete_measurement_event-contract-2.0.0",
+      "path": "vectors/delete_measurement_event.json",
+      "sha256": "c5dc198faae57ee02f53ec8a537cf3af313cf2ead5ad6801842880761b75daac"
+    },
+    {
+      "id": "delete_site-contract-2.0.0",
+      "path": "vectors/delete_site.json",
+      "sha256": "5f0270e12231bd430129a5cd2e8d9222fb080252b35b9fb5d66cfc9a94b5483c"
+    },
+    {
+      "id": "get_account_capabilities-contract-2.0.0",
+      "path": "vectors/get_account_capabilities.json",
+      "sha256": "5b2543f32f0525caf3b8e6b9873fa3fa9c153abdd1cd5410bd878782f7ffa568"
+    },
+    {
+      "id": "get_analytics_breakdown-contract-2.0.0",
+      "path": "vectors/get_analytics_breakdown.json",
+      "sha256": "5b333d29539d6064276360f7adddf6e63091069a441db44fc0a663a2feb8b624"
+    },
+    {
+      "id": "get_analytics_overview-contract-2.0.0",
+      "path": "vectors/get_analytics_overview.json",
+      "sha256": "2f7aba191e067206885011974abd954f75441934c2bdc3772808fd1ec824fbb2"
+    },
+    {
+      "id": "get_analytics_timeseries-contract-2.0.0",
+      "path": "vectors/get_analytics_timeseries.json",
+      "sha256": "844e1bf624f0305a1493ca81454aa5b2a6bb5399ba30c5c393ed1d09cf565983"
+    },
+    {
+      "id": "get_bot_analytics-contract-2.0.0",
+      "path": "vectors/get_bot_analytics.json",
+      "sha256": "6cd73df347361da6e488dc4d64119702fe71facccdd74681cbbe8c97ea83b8e8"
+    },
+    {
+      "id": "get_integration_status-contract-2.0.0",
+      "path": "vectors/get_integration_status.json",
+      "sha256": "1f513046240446c6a311953649e57171fbf3898c3c8869026889adb4142c3ca1"
+    },
+    {
+      "id": "get_measurement_config-contract-2.0.0",
+      "path": "vectors/get_measurement_config.json",
+      "sha256": "891ffbbf5cbd68f67188181aee6edd0b5fbb4eca64704210782b055899869954"
+    },
+    {
+      "id": "get_product_metrics-contract-2.0.0",
+      "path": "vectors/get_product_metrics.json",
+      "sha256": "151121fb119a747fc288795ea816bc5c2daad5f17903b9d14dbd0e81c89b3c53"
+    },
+    {
+      "id": "get_site-contract-2.0.0",
+      "path": "vectors/get_site.json",
+      "sha256": "d7c4d45359fad30d5cf01f1d59c65e518343618f880753fafbcbd0cb96735ad1"
+    },
+    {
+      "id": "get_sites_overview-contract-2.0.0",
+      "path": "vectors/get_sites_overview.json",
+      "sha256": "c69d97d4a28fa35882da402d523fc13c092a83a46a9b7cd39e1d85965a3dd1ee"
+    },
+    {
+      "id": "get_tracking_setup-contract-2.0.0",
+      "path": "vectors/get_tracking_setup.json",
+      "sha256": "1585fd90c28ade30d486a2c0ce3c105df729312f65fdf4827000dfa6959b3d42"
+    },
+    {
+      "id": "list_sites-contract-2.0.0",
+      "path": "vectors/list_sites.json",
+      "sha256": "086d266e6b74de1e7c4d8b59f2b9d3ebe8a9e2d45ba196ca19e43679d63a6524"
+    },
+    {
+      "id": "render_tracking_setup-contract-2.0.0",
+      "path": "vectors/render_tracking_setup.json",
+      "sha256": "085ab3030ed9396d0aad0cfae113ae97fc638662d18fea2805f59c6b0c9d1fdb"
+    },
+    {
+      "id": "set_activation-contract-2.0.0",
+      "path": "vectors/set_activation.json",
+      "sha256": "8a67f0f5093d4e1071bd45c897d16e9a20f3da13b69ea7bbc9a00ba119765a4c"
+    },
+    {
+      "id": "update_measurement_event-contract-2.0.0",
+      "path": "vectors/update_measurement_event.json",
+      "sha256": "32e86430b59e74ce6c86fce01dcc17244898029e56d39336e9545f8528bbc5e0"
+    },
+    {
+      "id": "update_site-contract-2.0.0",
+      "path": "vectors/update_site.json",
+      "sha256": "e60403dcfb8cac0dae40fd5f36fd770c28df926ad1e52fbef0a4406b56651eb0"
+    }
+  ]
+}

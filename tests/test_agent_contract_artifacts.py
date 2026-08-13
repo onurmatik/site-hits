@@ -14,8 +14,8 @@ from agent_runtime.errors import APPLICATION_ERROR_CODES
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "agent" / "contract.yaml"
 CONTRACT_SCHEMA_PATH = ROOT / "agent" / "contract.schema.json"
-VECTOR_SCHEMA_PATH = ROOT / "agent" / "conformance" / "vector.schema.json"
-MANIFEST_PATH = ROOT / "agent" / "conformance" / "1.0.0" / "manifest.json"
+MANIFEST_PATH = ROOT / "agent" / "conformance" / "2.0.0" / "manifest.json"
+VECTOR_SCHEMA_PATH = MANIFEST_PATH.parent / "vector.schema.json"
 SOURCES_PATH = ROOT / "release" / "sources.yaml"
 
 
@@ -94,8 +94,8 @@ def test_contract_referential_integrity_and_metadata_completeness(contract):
     assert tools[contract["bootstrap"]["tool"]]["side_effect"] == "read_only"
     assert tools["get_integration_status"]["resource_type"] == "integration"
     assert tools["get_measurement_config"]["resource_type"] == "measurement_configuration"
-    assert contract["compatibility"]["window_status"] == "not_applicable_initial_release"
-    assert contract["compatibility"]["previous_major_minimum_days"] is None
+    assert contract["compatibility"]["window_status"] == "defined"
+    assert contract["compatibility"]["previous_major_minimum_days"] == 180
     assert contract["retention"] == {
         "audit_days": 90,
         "idempotency_records": {
@@ -369,7 +369,7 @@ def test_release_descriptor_is_reproducible_and_content_addresses_bundle(tmp_pat
     bundle.mkdir()
     manifest = _load(MANIFEST_PATH)
     (bundle / "manifest.json").write_bytes(MANIFEST_PATH.read_bytes())
-    schema_target = bundle.parent / "vector.schema.json"
+    schema_target = bundle / "vector.schema.json"
     schema_target.write_bytes(VECTOR_SCHEMA_PATH.read_bytes())
     (bundle / "vectors").mkdir()
     for item in manifest["vectors"]:

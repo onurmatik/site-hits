@@ -5,8 +5,16 @@ from typing import Literal, TypeAlias
 from ninja import Field, Schema
 from pydantic import field_validator
 
-
 JsonScalar: TypeAlias = str | int | float | bool | None
+AnalyticsPeriod: TypeAlias = Literal[
+    "today",
+    "last24h",
+    "last7d",
+    "last30d",
+    "last90d",
+    "last180d",
+    "last365d",
+]
 
 
 class ViewportSchema(Schema):
@@ -80,6 +88,32 @@ class ServerAcceptedResponse(AcceptedResponse):
 
 class ForgetActorResponse(Schema):
     deleted_events: int
+    request_id: str
+    deleted_hot_events: int
+    status: Literal[
+        "accepted",
+        "running",
+        "waiting_restore",
+        "completed",
+        "failed",
+        "unknown",
+    ]
+
+
+class ForgetActorStatusResponse(Schema):
+    request_id: str
+    status: Literal[
+        "accepted",
+        "running",
+        "waiting_restore",
+        "completed",
+        "failed",
+        "unknown",
+    ]
+    deleted_hot_events: int
+    deleted_cold_events: int
+    rewritten_partitions: int
+    error: str
 
 
 class ErrorDetail(Schema):

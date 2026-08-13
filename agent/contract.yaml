@@ -1,7 +1,7 @@
 {
   "$schema": "./contract.schema.json",
   "contract_schema_version": "1",
-  "agent_contract_version": "1.0.0",
+  "agent_contract_version": "2.0.0",
   "product": {
     "name": "SiteHits",
     "slug": "sitehits",
@@ -184,6 +184,7 @@
     "capacity_reached": {"meaning": "A non-renewing resource capacity has been reached.", "retryable": false, "details": ["used", "limit", "period", "reset_at"]},
     "rate_limited": {"meaning": "A short-term request-rate limit has been reached.", "retryable": true, "details": ["retry_after_seconds", "idempotency_id"]},
     "feature_unavailable": {"meaning": "A required product capability is unavailable in the current entitlement context.", "retryable": false, "details": ["capability"]},
+    "historical_data_unavailable": {"meaning": "The requested historical analytics could not be produced within the bounded query window and no valid cached result is available.", "retryable": true, "details": ["retry_after_seconds"]},
     "internal_error": {"meaning": "An unexpected failure occurred after authenticated dispatch; no internal trace, stack, database identifier, or topology is disclosed.", "retryable": false, "details": []}
   },
   "data_classifications": {
@@ -234,8 +235,8 @@
   },
   "compatibility": {
     "strategy": "additive_superset",
-    "previous_major_minimum_days": null,
-    "window_status": "not_applicable_initial_release",
+    "previous_major_minimum_days": 180,
+    "window_status": "defined",
     "versioning_rules": {
       "patch": "Descriptions and spelling may change without changing declared semantics.",
       "minor": "Additive public tools or optional fields are allowed only at an explicitly declared extensibility boundary.",
@@ -379,7 +380,7 @@
       "open_world": false,
       "approval": {"policy": "none"},
       "idempotency": {"mode": "not_required", "uncertain_result": "safe_retry"},
-      "errors": ["invalid_input", "resource_not_found", "permission_denied", "feature_unavailable", "internal_error"],
+      "errors": ["invalid_input", "resource_not_found", "permission_denied", "feature_unavailable", "historical_data_unavailable", "internal_error"],
       "data": {"input": ["site_configuration"], "output": ["aggregate_analytics"], "redaction": "Return only aggregate metrics; no raw visitor or session records."},
       "audit": "standard_read"
     },
@@ -399,7 +400,7 @@
       "open_world": false,
       "approval": {"policy": "none"},
       "idempotency": {"mode": "not_required", "uncertain_result": "safe_retry"},
-      "errors": ["invalid_input", "permission_denied", "feature_unavailable", "internal_error"],
+      "errors": ["invalid_input", "permission_denied", "feature_unavailable", "historical_data_unavailable", "internal_error"],
       "data": {"input": [], "output": ["aggregate_analytics", "site_configuration"], "redaction": "Return only accessible site identifiers and aggregates."},
       "audit": "standard_read"
     },
@@ -419,7 +420,7 @@
       "open_world": false,
       "approval": {"policy": "none"},
       "idempotency": {"mode": "not_required", "uncertain_result": "safe_retry"},
-      "errors": ["invalid_input", "resource_not_found", "permission_denied", "feature_unavailable", "internal_error"],
+      "errors": ["invalid_input", "resource_not_found", "permission_denied", "feature_unavailable", "historical_data_unavailable", "internal_error"],
       "data": {"input": ["site_configuration"], "output": ["aggregate_analytics"], "redaction": "Return aggregate buckets only."},
       "audit": "standard_read"
     },
@@ -439,7 +440,7 @@
       "open_world": false,
       "approval": {"policy": "none"},
       "idempotency": {"mode": "not_required", "uncertain_result": "safe_retry"},
-      "errors": ["invalid_input", "resource_not_found", "permission_denied", "feature_unavailable", "internal_error"],
+      "errors": ["invalid_input", "resource_not_found", "permission_denied", "feature_unavailable", "historical_data_unavailable", "internal_error"],
       "data": {"input": ["site_configuration"], "output": ["aggregate_analytics"], "redaction": "Return ranked aggregate labels and counts only."},
       "audit": "standard_read"
     },
@@ -459,7 +460,7 @@
       "open_world": false,
       "approval": {"policy": "none"},
       "idempotency": {"mode": "not_required", "uncertain_result": "safe_retry"},
-      "errors": ["invalid_input", "resource_not_found", "permission_denied", "feature_unavailable", "internal_error"],
+      "errors": ["invalid_input", "resource_not_found", "permission_denied", "feature_unavailable", "historical_data_unavailable", "internal_error"],
       "data": {"input": ["site_configuration"], "output": ["aggregate_analytics"], "redaction": "Do not expose raw IP addresses, user agents, visitor hashes, or session identifiers."},
       "audit": "standard_read"
     },
@@ -479,7 +480,7 @@
       "open_world": false,
       "approval": {"policy": "none"},
       "idempotency": {"mode": "not_required", "uncertain_result": "safe_retry"},
-      "errors": ["invalid_input", "resource_not_found", "permission_denied", "feature_unavailable", "internal_error"],
+      "errors": ["invalid_input", "resource_not_found", "permission_denied", "feature_unavailable", "historical_data_unavailable", "internal_error"],
       "data": {"input": ["site_configuration"], "output": ["aggregate_analytics", "measurement_configuration"], "redaction": "Return aggregate actor counts only; no raw actor identifiers or event properties."},
       "audit": "standard_read"
     },
@@ -691,13 +692,13 @@
     "site_selector": {"type": "string", "pattern": "^(?:all|[a-z0-9]+(?:-[a-z0-9]+)*)$", "minLength": 1, "maxLength": 80},
     "event_name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_:-]{0,63}$"},
     "revision": {"type": "string", "minLength": 1, "maxLength": 64},
-    "period": {"type": "string", "enum": ["today", "last24h", "last7d", "last30d", "last90d"]},
+    "period": {"type": "string", "enum": ["today", "last24h", "last7d", "last30d", "last90d", "last180d", "last365d"]},
     "aggregation": {"type": "string", "enum": ["count", "unique_actors", "sum", "average"]},
     "application_error": {
       "type": "object",
       "required": ["code", "message", "retryable", "request_id", "details"],
       "properties": {
-        "code": {"type": "string", "enum": ["invalid_input", "resource_not_found", "permission_denied", "confirmation_required", "revision_conflict", "idempotency_conflict", "referenced_resource_conflict", "capacity_reached", "rate_limited", "feature_unavailable", "internal_error"]},
+        "code": {"type": "string", "enum": ["invalid_input", "resource_not_found", "permission_denied", "confirmation_required", "revision_conflict", "idempotency_conflict", "referenced_resource_conflict", "capacity_reached", "rate_limited", "feature_unavailable", "historical_data_unavailable", "internal_error"]},
         "message": {"type": "string", "minLength": 1},
         "retryable": {"type": "boolean"},
         "request_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
@@ -796,25 +797,26 @@
     "breakdown_input": {"type": "object", "required": ["site_slug", "dimension"], "properties": {"site_slug": {"$ref": "#/$defs/site_slug"}, "dimension": {"type": "string", "enum": ["pages", "referrers", "countries", "regions", "cities", "devices", "browsers", "os", "campaigns", "events"]}, "period": {"$ref": "#/$defs/period", "default": "last7d"}, "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 8}}, "additionalProperties": false},
     "bot_analytics_input": {"type": "object", "properties": {"site_slug": {"$ref": "#/$defs/site_selector", "default": "all"}, "period": {"$ref": "#/$defs/period", "default": "last7d"}, "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 8}}, "additionalProperties": false},
     "product_metrics_input": {"type": "object", "required": ["site_slug"], "properties": {"site_slug": {"$ref": "#/$defs/selected_site_slug"}, "period": {"$ref": "#/$defs/period", "default": "last7d"}}, "additionalProperties": false},
+    "freshness": {"type": "object", "required": ["source", "generated_at", "is_stale"], "properties": {"source": {"type": "string", "enum": ["hot", "hybrid", "cache"]}, "generated_at": {"type": "string", "format": "date-time"}, "is_stale": {"type": "boolean"}}, "additionalProperties": false},
     "metric_set": {"type": "object", "required": ["visitors", "sessions", "pageviews", "bounce_rate", "avg_session_duration"], "properties": {"visitors": {"type": "integer", "minimum": 0}, "sessions": {"type": "integer", "minimum": 0}, "pageviews": {"type": "integer", "minimum": 0}, "bounce_rate": {"type": "number", "minimum": 0, "maximum": 100}, "avg_session_duration": {"type": "integer", "minimum": 0}}, "additionalProperties": false},
     "metric_deltas": {"type": "object", "required": ["visitors", "sessions", "pageviews", "bounce_rate", "avg_session_duration"], "properties": {"visitors": {"type": ["number", "null"]}, "sessions": {"type": ["number", "null"]}, "pageviews": {"type": ["number", "null"]}, "bounce_rate": {"type": ["number", "null"]}, "avg_session_duration": {"type": ["number", "null"]}}, "additionalProperties": false},
-    "analytics_overview": {"type": "object", "required": ["site", "period", "timezone", "current", "previous", "deltas"], "properties": {"site": {"$ref": "#/$defs/site_selector"}, "period": {"$ref": "#/$defs/period"}, "timezone": {"type": "string"}, "current": {"$ref": "#/$defs/metric_set"}, "previous": {"$ref": "#/$defs/metric_set"}, "deltas": {"$ref": "#/$defs/metric_deltas"}}, "additionalProperties": false},
+    "analytics_overview": {"type": "object", "required": ["site", "period", "timezone", "current", "previous", "deltas"], "properties": {"site": {"$ref": "#/$defs/site_selector"}, "period": {"$ref": "#/$defs/period"}, "timezone": {"type": "string"}, "current": {"$ref": "#/$defs/metric_set"}, "previous": {"$ref": "#/$defs/metric_set"}, "deltas": {"$ref": "#/$defs/metric_deltas"}, "freshness": {"$ref": "#/$defs/freshness"}}, "additionalProperties": false},
     "site_overview_item": {"type": "object", "required": ["slug", "name", "domains", "current", "previous", "deltas"], "properties": {"slug": {"$ref": "#/$defs/site_slug"}, "name": {"type": "string"}, "domains": {"type": "array", "items": {"type": "string"}}, "current": {"$ref": "#/$defs/metric_set"}, "previous": {"$ref": "#/$defs/metric_set"}, "deltas": {"$ref": "#/$defs/metric_deltas"}}, "additionalProperties": false},
-    "sites_overview": {"type": "object", "required": ["site", "period", "timezone", "sites"], "properties": {"site": {"const": "all"}, "period": {"$ref": "#/$defs/period"}, "timezone": {"type": "string"}, "sites": {"type": "array", "items": {"$ref": "#/$defs/site_overview_item"}}}, "additionalProperties": false},
+    "sites_overview": {"type": "object", "required": ["site", "period", "timezone", "sites"], "properties": {"site": {"const": "all"}, "period": {"$ref": "#/$defs/period"}, "timezone": {"type": "string"}, "sites": {"type": "array", "items": {"$ref": "#/$defs/site_overview_item"}}, "freshness": {"$ref": "#/$defs/freshness"}}, "additionalProperties": false},
     "timeseries_point": {"type": "object", "required": ["bucket", "visitors", "sessions", "pageviews"], "properties": {"bucket": {"type": "string", "format": "date-time"}, "visitors": {"type": "integer", "minimum": 0}, "sessions": {"type": "integer", "minimum": 0}, "pageviews": {"type": "integer", "minimum": 0}}, "additionalProperties": false},
-    "analytics_timeseries": {"type": "object", "required": ["site", "period", "granularity", "timezone", "data"], "properties": {"site": {"$ref": "#/$defs/site_selector"}, "period": {"$ref": "#/$defs/period"}, "granularity": {"type": "string", "enum": ["hourly", "daily"]}, "timezone": {"type": "string"}, "data": {"type": "array", "items": {"$ref": "#/$defs/timeseries_point"}}}, "additionalProperties": false},
+    "analytics_timeseries": {"type": "object", "required": ["site", "period", "granularity", "timezone", "data"], "properties": {"site": {"$ref": "#/$defs/site_selector"}, "period": {"$ref": "#/$defs/period"}, "granularity": {"type": "string", "enum": ["hourly", "daily"]}, "timezone": {"type": "string"}, "data": {"type": "array", "items": {"$ref": "#/$defs/timeseries_point"}}, "freshness": {"$ref": "#/$defs/freshness"}}, "additionalProperties": false},
     "breakdown_row": {"type": "object", "required": ["label", "count", "percentage"], "properties": {"label": {"type": "string"}, "count": {"type": "integer", "minimum": 0}, "percentage": {"type": "number", "minimum": 0, "maximum": 100}}, "additionalProperties": false},
-    "analytics_breakdown": {"type": "object", "required": ["site", "period", "dimension", "data"], "properties": {"site": {"$ref": "#/$defs/site_slug"}, "period": {"$ref": "#/$defs/period"}, "dimension": {"type": "string", "enum": ["pages", "referrers", "countries", "regions", "cities", "devices", "browsers", "os", "campaigns", "events"]}, "data": {"type": "array", "items": {"$ref": "#/$defs/breakdown_row"}}}, "additionalProperties": false},
+    "analytics_breakdown": {"type": "object", "required": ["site", "period", "dimension", "data"], "properties": {"site": {"$ref": "#/$defs/site_slug"}, "period": {"$ref": "#/$defs/period"}, "dimension": {"type": "string", "enum": ["pages", "referrers", "countries", "regions", "cities", "devices", "browsers", "os", "campaigns", "events"]}, "data": {"type": "array", "items": {"$ref": "#/$defs/breakdown_row"}}, "freshness": {"$ref": "#/$defs/freshness"}}, "additionalProperties": false},
     "collector_health": {"type": "object", "required": ["state", "last_seen_at", "last_event_at"], "properties": {"state": {"type": "string", "enum": ["never_seen", "active", "stale"]}, "last_seen_at": {"type": ["string", "null"], "format": "date-time"}, "last_event_at": {"type": ["string", "null"], "format": "date-time"}}, "additionalProperties": false},
     "bot_category": {"type": "object", "required": ["key", "label", "count", "percentage"], "properties": {"key": {"type": "string", "enum": ["answer", "indexing", "training", "other"]}, "label": {"type": "string"}, "count": {"type": "integer", "minimum": 0}, "percentage": {"type": "number", "minimum": 0, "maximum": 100}}, "additionalProperties": false},
     "bot_page": {"type": "object", "required": ["path", "status_code", "count", "percentage"], "properties": {"path": {"type": "string"}, "status_code": {"type": ["integer", "null"]}, "count": {"type": "integer", "minimum": 0}, "percentage": {"type": "number", "minimum": 0, "maximum": 100}}, "additionalProperties": false},
     "automation_reason": {"type": "object", "required": ["key", "label", "visitors"], "properties": {"key": {"type": "string"}, "label": {"type": "string"}, "visitors": {"type": "integer", "minimum": 0}}, "additionalProperties": false},
     "automation_page": {"type": "object", "required": ["path", "count"], "properties": {"path": {"type": "string"}, "count": {"type": "integer", "minimum": 0}}, "additionalProperties": false},
     "suspected_automation": {"type": "object", "required": ["visitors", "sessions", "pageviews", "reasons", "pages"], "properties": {"visitors": {"type": "integer", "minimum": 0}, "sessions": {"type": "integer", "minimum": 0}, "pageviews": {"type": "integer", "minimum": 0}, "reasons": {"type": "array", "items": {"$ref": "#/$defs/automation_reason"}}, "pages": {"type": "array", "items": {"$ref": "#/$defs/automation_page"}}}, "additionalProperties": false},
-    "bot_analytics": {"type": "object", "required": ["site", "period", "timezone", "collector", "total", "categories", "providers", "pages", "verification", "suspected_automation"], "properties": {"site": {"$ref": "#/$defs/site_selector"}, "period": {"$ref": "#/$defs/period"}, "timezone": {"type": "string"}, "collector": {"$ref": "#/$defs/collector_health"}, "total": {"type": "integer", "minimum": 0}, "categories": {"type": "array", "items": {"$ref": "#/$defs/bot_category"}}, "providers": {"type": "array", "items": {"$ref": "#/$defs/breakdown_row"}}, "pages": {"type": "array", "items": {"$ref": "#/$defs/bot_page"}}, "verification": {"type": "object", "required": ["ip_verified", "user_agent"], "properties": {"ip_verified": {"type": "integer", "minimum": 0}, "user_agent": {"type": "integer", "minimum": 0}}, "additionalProperties": false}, "suspected_automation": {"$ref": "#/$defs/suspected_automation"}}, "additionalProperties": false},
+    "bot_analytics": {"type": "object", "required": ["site", "period", "timezone", "collector", "total", "categories", "providers", "pages", "verification", "suspected_automation"], "properties": {"site": {"$ref": "#/$defs/site_selector"}, "period": {"$ref": "#/$defs/period"}, "timezone": {"type": "string"}, "collector": {"$ref": "#/$defs/collector_health"}, "total": {"type": "integer", "minimum": 0}, "categories": {"type": "array", "items": {"$ref": "#/$defs/bot_category"}}, "providers": {"type": "array", "items": {"$ref": "#/$defs/breakdown_row"}}, "pages": {"type": "array", "items": {"$ref": "#/$defs/bot_page"}}, "verification": {"type": "object", "required": ["ip_verified", "user_agent"], "properties": {"ip_verified": {"type": "integer", "minimum": 0}, "user_agent": {"type": "integer", "minimum": 0}}, "additionalProperties": false}, "suspected_automation": {"$ref": "#/$defs/suspected_automation"}, "freshness": {"$ref": "#/$defs/freshness"}}, "additionalProperties": false},
     "product_metric": {"type": "object", "required": ["event_name", "display_name", "description", "aggregation", "unit", "primary_value", "event_count", "unique_actors", "identified_events", "identified_rate", "value_sum", "value_average"], "properties": {"event_name": {"$ref": "#/$defs/event_name"}, "display_name": {"type": "string"}, "description": {"type": "string"}, "aggregation": {"$ref": "#/$defs/aggregation"}, "unit": {"type": "string"}, "primary_value": {"type": ["integer", "string", "null"]}, "event_count": {"type": "integer", "minimum": 0}, "unique_actors": {"type": "integer", "minimum": 0}, "identified_events": {"type": "integer", "minimum": 0}, "identified_rate": {"type": ["number", "null"]}, "value_sum": {"type": ["string", "null"]}, "value_average": {"type": ["string", "null"]}}, "additionalProperties": false},
     "activation_metrics": {"type": "object", "required": ["start_event", "start_label", "goal_event", "goal_label", "started", "activated", "eligible_24h", "converted_24h", "rate_24h", "pending_24h", "eligible_7d", "converted_7d", "rate_7d", "pending_7d", "median_activation_seconds"], "properties": {"start_event": {"$ref": "#/$defs/event_name"}, "start_label": {"type": "string"}, "goal_event": {"$ref": "#/$defs/event_name"}, "goal_label": {"type": "string"}, "started": {"type": "integer", "minimum": 0}, "activated": {"type": "integer", "minimum": 0}, "eligible_24h": {"type": "integer", "minimum": 0}, "converted_24h": {"type": "integer", "minimum": 0}, "rate_24h": {"type": ["number", "null"]}, "pending_24h": {"type": "integer", "minimum": 0}, "eligible_7d": {"type": "integer", "minimum": 0}, "converted_7d": {"type": "integer", "minimum": 0}, "rate_7d": {"type": ["number", "null"]}, "pending_7d": {"type": "integer", "minimum": 0}, "median_activation_seconds": {"type": ["integer", "null"]}}, "additionalProperties": false},
-    "product_metrics": {"type": "object", "required": ["site", "period", "timezone", "collector", "activation", "metrics", "warnings"], "properties": {"site": {"$ref": "#/$defs/site_slug"}, "period": {"$ref": "#/$defs/period"}, "timezone": {"type": "string"}, "collector": {"$ref": "#/$defs/collector_health"}, "activation": {"oneOf": [{"$ref": "#/$defs/activation_metrics"}, {"type": "null"}]}, "metrics": {"type": "array", "items": {"$ref": "#/$defs/product_metric"}}, "warnings": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": false},
+    "product_metrics": {"type": "object", "required": ["site", "period", "timezone", "collector", "activation", "metrics", "warnings"], "properties": {"site": {"$ref": "#/$defs/site_slug"}, "period": {"$ref": "#/$defs/period"}, "timezone": {"type": "string"}, "collector": {"$ref": "#/$defs/collector_health"}, "activation": {"oneOf": [{"$ref": "#/$defs/activation_metrics"}, {"type": "null"}]}, "metrics": {"type": "array", "items": {"$ref": "#/$defs/product_metric"}}, "warnings": {"type": "array", "items": {"type": "string"}}, "freshness": {"$ref": "#/$defs/freshness"}}, "additionalProperties": false},
     "event_definition": {"type": "object", "required": ["event_name", "display_name", "description", "aggregation", "unit", "created_at", "updated_at", "revision"], "properties": {"event_name": {"$ref": "#/$defs/event_name"}, "display_name": {"type": "string", "minLength": 1, "maxLength": 120}, "description": {"type": "string", "minLength": 1, "maxLength": 500}, "aggregation": {"$ref": "#/$defs/aggregation"}, "unit": {"type": "string", "maxLength": 32}, "created_at": {"type": "string", "format": "date-time"}, "updated_at": {"type": "string", "format": "date-time"}, "revision": {"$ref": "#/$defs/revision"}}, "additionalProperties": false},
     "activation": {"type": "object", "required": ["site_slug", "start_event", "goal_event", "updated_at", "revision"], "properties": {"site_slug": {"$ref": "#/$defs/site_slug"}, "start_event": {"$ref": "#/$defs/event_name"}, "goal_event": {"$ref": "#/$defs/event_name"}, "updated_at": {"type": "string", "format": "date-time"}, "revision": {"$ref": "#/$defs/revision"}}, "additionalProperties": false},
     "measurement_config": {"type": "object", "required": ["site_slug", "events", "activation"], "properties": {"site_slug": {"$ref": "#/$defs/site_slug"}, "events": {"type": "array", "items": {"$ref": "#/$defs/event_definition"}}, "activation": {"oneOf": [{"$ref": "#/$defs/activation"}, {"type": "null"}]}}, "additionalProperties": false},
@@ -832,6 +834,6 @@
     "server_setup": {"type": "object", "required": ["environment", "setup_guidance"], "properties": {"environment": {"type": "string", "minLength": 1}, "setup_guidance": {"type": "string", "minLength": 1}}, "additionalProperties": false},
     "tracking_setup": {"type": "object", "required": ["site_slug", "site_name"], "properties": {"site_slug": {"$ref": "#/$defs/site_slug"}, "site_name": {"type": "string", "minLength": 1}, "browser": {"$ref": "#/$defs/browser_setup"}, "bot": {"$ref": "#/$defs/server_setup"}, "product": {"$ref": "#/$defs/server_setup"}}, "anyOf": [{"required": ["browser"]}, {"required": ["bot"]}, {"required": ["product"]}], "additionalProperties": false},
     "integration_status_input": {"type": "object", "properties": {"skill_version": {"oneOf": [{"type": "string", "minLength": 1, "maxLength": 128}, {"type": "null"}], "default": null}}, "additionalProperties": false},
-    "integration_status": {"type": "object", "required": ["server_version", "agent_contract_version", "latest_skill_version", "minimum_skill_version", "reported_skill_version", "skill_status", "upgrade_required", "update_available", "skill_update_url"], "properties": {"server_version": {"type": "string"}, "agent_contract_version": {"const": "1.0.0"}, "latest_skill_version": {"type": "string"}, "minimum_skill_version": {"type": "string"}, "reported_skill_version": {"type": ["string", "null"]}, "skill_status": {"type": "string", "enum": ["unknown", "upgrade_required", "update_available", "current", "newer_than_server"]}, "upgrade_required": {"type": "boolean"}, "update_available": {"type": "boolean"}, "skill_update_url": {"type": "string"}}, "additionalProperties": false}
+    "integration_status": {"type": "object", "required": ["server_version", "agent_contract_version", "latest_skill_version", "minimum_skill_version", "reported_skill_version", "skill_status", "upgrade_required", "update_available", "skill_update_url"], "properties": {"server_version": {"type": "string"}, "agent_contract_version": {"const": "2.0.0"}, "latest_skill_version": {"type": "string"}, "minimum_skill_version": {"type": "string"}, "reported_skill_version": {"type": ["string", "null"]}, "skill_status": {"type": "string", "enum": ["unknown", "upgrade_required", "update_available", "current", "newer_than_server"]}, "upgrade_required": {"type": "boolean"}, "update_available": {"type": "boolean"}, "skill_update_url": {"type": "string"}}, "additionalProperties": false}
   }
 }

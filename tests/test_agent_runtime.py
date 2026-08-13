@@ -778,10 +778,10 @@ def test_runtime_retention_windows_are_canonical_contract_values():
 @pytest.mark.django_db
 def test_all_public_tools_return_exact_contract_outputs_and_audit(agent_user):
     contract = json.loads(Path("agent/contract.yaml").read_text())
-    manifest_dir = Path("agent/conformance/1.0.0")
+    manifest_dir = Path("agent/conformance/2.0.0")
     manifest = json.loads((manifest_dir / "manifest.json").read_text())
     vectors = {
-        entry["id"].removesuffix("-contract-1.0.0"): json.loads(
+        entry["id"].removesuffix("-contract-2.0.0"): json.loads(
             (manifest_dir / entry["path"]).read_text()
         )
         for entry in manifest["vectors"]
@@ -795,8 +795,8 @@ def test_all_public_tools_return_exact_contract_outputs_and_audit(agent_user):
         ),
         integration_status_provider=lambda version: {
             "server_version": "0.2.0",
-            "agent_contract_version": "1.0.0",
-            "latest_skill_version": "1.0.0",
+            "agent_contract_version": "2.0.0",
+            "latest_skill_version": "2.0.0",
             "minimum_skill_version": "1.0.0",
             "reported_skill_version": version,
             "skill_status": "unknown",
@@ -931,7 +931,7 @@ def test_all_applicable_vector_inputs_have_executable_service_outcomes(agent_use
         ),
         integration_status_provider=lambda _version: {},
     )
-    manifest_dir = Path("agent/conformance/1.0.0")
+    manifest_dir = Path("agent/conformance/2.0.0")
     manifest = json.loads((manifest_dir / "manifest.json").read_text())
     exercised = set()
 

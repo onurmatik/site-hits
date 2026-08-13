@@ -1,0 +1,329 @@
+{
+  "agent_contract_version": "2.0.0",
+  "defaults": {
+    "audit": {
+      "forbidden_fields": [
+        "password",
+        "access_token",
+        "refresh_token",
+        "authorization_code",
+        "private_tracking_key",
+        "trace_id",
+        "stack_trace",
+        "database_id"
+      ],
+      "input_recording": "keyed_hash",
+      "profile": "standard_write",
+      "required_fields": [
+        "authenticated_actor_id",
+        "authenticated_client_id",
+        "tenant_id",
+        "tool_name",
+        "target_resource",
+        "authorization_decisions",
+        "redacted_input_summary_or_hash",
+        "outcome_code",
+        "request_id",
+        "idempotency_id",
+        "operation_id",
+        "timestamp_utc"
+      ]
+    },
+    "authorization_context": {
+      "authenticated": true,
+      "capabilities": [
+        "site_management"
+      ],
+      "limits": {
+        "sites": {
+          "limit": null,
+          "period": "permanent",
+          "reset_at": null,
+          "used": 1
+        }
+      },
+      "scopes": [
+        "read",
+        "write"
+      ]
+    },
+    "context": {
+      "authenticated_actor_id": "actor-owner",
+      "authenticated_client_id": "client-codex",
+      "ownership": {
+        "target_owned_by_authenticated_actor": true
+      },
+      "tenant_id": null
+    }
+  },
+  "execution_coverage": {
+    "approval": {
+      "basis": "Contract-declared inapplicability for this tool: This tool is read-only or reversible and requires no explicit-intent assertion.",
+      "mode": "contract_inapplicability",
+      "tests": [
+        "tests/test_agent_runtime.py::test_site_mutations_require_revision_and_agent_approval",
+        "tests/test_agent_runtime.py::test_agent_approval_rejects_wrong_owner_action_resource_and_confirmation",
+        "tests/test_agent_runtime.py::test_measurement_metadata_and_contract_changes_are_separate",
+        "tests/test_agent_runtime.py::test_activation_references_and_deletion_use_stable_errors"
+      ]
+    },
+    "async_status": {
+      "basis": "Contract-declared inapplicability for this tool: The operation completes within one request and does not create a long-running operation.",
+      "mode": "contract_inapplicability",
+      "tests": [
+        "tests/test_agent_runtime.py::test_all_public_tools_return_exact_contract_outputs_and_audit"
+      ]
+    },
+    "capability_plan_matrix": {
+      "basis": "Capability and limit evaluators receive actor context rather than a plan label.",
+      "mode": "shared_service_mechanism",
+      "tests": [
+        "tests/test_agent_runtime.py::test_site_capacity_is_plan_independent_atomic_and_audited"
+      ]
+    },
+    "idempotency_conflict": {
+      "basis": "Contract-declared inapplicability for this tool: This tool has no explicit or natural replay key that can conflict.",
+      "mode": "contract_inapplicability",
+      "tests": [
+        "tests/test_agent_runtime.py::test_create_site_is_atomic_idempotent_and_audited",
+        "tests/test_agent_runtime.py::test_measurement_event_natural_key_replay_and_conflict"
+      ]
+    },
+    "idempotent_replay": {
+      "basis": "Contract-declared inapplicability for this tool: This tool uses safe reads or optimistic revision semantics rather than replay-result idempotency.",
+      "mode": "contract_inapplicability",
+      "tests": [
+        "tests/test_agent_runtime.py::test_create_site_is_atomic_idempotent_and_audited",
+        "tests/test_agent_runtime.py::test_measurement_event_natural_key_replay_and_conflict"
+      ]
+    },
+    "internal_error": {
+      "basis": "SiteHitsService._run catches every unexpected post-dispatch exception and emits one redacted envelope.",
+      "mode": "shared_service_mechanism",
+      "tests": [
+        "tests/test_agent_runtime.py::test_unexpected_exception_is_redacted_and_audited"
+      ]
+    },
+    "invalid_input": {
+      "basis": "The harness invokes every applicable invalid_input vector through its named service method.",
+      "mode": "per_tool_vector",
+      "tests": [
+        "tests/test_agent_runtime.py::test_all_applicable_vector_inputs_have_executable_service_outcomes"
+      ]
+    },
+    "missing_capability": {
+      "basis": "SiteHitsService._run applies the same CapabilityEvaluator gate before ownership and operation dispatch.",
+      "mode": "shared_service_mechanism",
+      "tests": [
+        "tests/test_agent_runtime.py::test_bootstrap_requires_no_product_capability_and_keeps_ownership_separate"
+      ]
+    },
+    "ownership_isolation": {
+      "basis": "Central site lookup, visible-site filtering, and report dispatch implement target and inherited ownership.",
+      "mode": "shared_service_mechanism",
+      "tests": [
+        "tests/test_agent_runtime.py::test_ownership_isolation_and_reporting_use_resource_not_found",
+        "tests/test_agent_runtime.py::test_collections_omit_foreign_and_system_owned_sites_without_global_access",
+        "tests/test_agent_runtime.py::test_global_resource_access_includes_foreign_and_system_owned_sites"
+      ]
+    },
+    "quota_concurrency": {
+      "basis": "Contract-declared inapplicability for this tool: This tool does not consume the Contract's sites capacity limit.",
+      "mode": "contract_inapplicability",
+      "tests": [
+        "tests/test_agent_runtime.py::test_site_capacity_concurrency_allows_exactly_one_creation"
+      ]
+    },
+    "redaction": {
+      "basis": "Exact output schemas exclude internal identifiers and tracking output explicitly verifies private-key redaction.",
+      "mode": "shared_service_mechanism",
+      "tests": [
+        "tests/test_agent_runtime.py::test_all_public_tools_return_exact_contract_outputs_and_audit",
+        "tests/test_agent_runtime.py::test_tracking_setup_never_returns_private_credentials"
+      ]
+    },
+    "success": {
+      "basis": "The harness calls all public service methods and validates each exact output schema and audit event.",
+      "mode": "per_tool_vector",
+      "tests": [
+        "tests/test_agent_runtime.py::test_all_public_tools_return_exact_contract_outputs_and_audit"
+      ]
+    },
+    "uncertain_external_effect": {
+      "basis": "Contract-declared inapplicability for this tool: No SiteHits public tool has external_effect semantics.",
+      "mode": "contract_inapplicability",
+      "tests": [
+        "tests/test_agent_runtime.py::test_all_public_tools_return_exact_contract_outputs_and_audit"
+      ]
+    }
+  },
+  "id": "update_site-contract-2.0.0",
+  "scenarios": {
+    "approval": {
+      "applicable": false,
+      "reason": "This tool is read-only or reversible and requires no explicit-intent assertion."
+    },
+    "async_status": {
+      "applicable": false,
+      "reason": "The operation completes within one request and does not create a long-running operation."
+    },
+    "capability_plan_matrix": {
+      "applicable": true,
+      "expected": {
+        "assertions": [
+          "plan_label_is_not_an_authorization_dimension"
+        ],
+        "audit_outcome_code": "success",
+        "cases": [
+          {
+            "capability_available": true,
+            "outcome": "success",
+            "plan_label": "free"
+          },
+          {
+            "capability_available": true,
+            "outcome": "success",
+            "plan_label": "pro"
+          },
+          {
+            "capability_available": false,
+            "outcome": "feature_unavailable",
+            "plan_label": "any"
+          }
+        ],
+        "outcome": "matrix"
+      },
+      "input": {
+        "expected_revision": "rev-site-001",
+        "name": "Example two",
+        "site_slug": "example-site"
+      }
+    },
+    "idempotency_conflict": {
+      "applicable": false,
+      "reason": "This tool has no explicit or natural replay key that can conflict."
+    },
+    "idempotent_replay": {
+      "applicable": false,
+      "reason": "This tool uses safe reads or optimistic revision semantics rather than replay-result idempotency."
+    },
+    "internal_error": {
+      "applicable": true,
+      "context_override": {
+        "inject_unexpected_service_failure": true
+      },
+      "expected": {
+        "assertions": [
+          "contains_no_stack_trace",
+          "contains_no_internal_trace",
+          "contains_no_database_identifier"
+        ],
+        "audit_outcome_code": "internal_error",
+        "error_code": "internal_error",
+        "outcome": "error"
+      },
+      "input": {
+        "expected_revision": "rev-site-001",
+        "name": "Example two",
+        "site_slug": "example-site"
+      }
+    },
+    "invalid_input": {
+      "applicable": true,
+      "expected": {
+        "audit_outcome_code": "invalid_input",
+        "error_code": "invalid_input",
+        "outcome": "error"
+      },
+      "input": {
+        "expected_revision": "rev-1",
+        "site_slug": "example-site"
+      }
+    },
+    "missing_capability": {
+      "applicable": true,
+      "authorization_override": {
+        "capabilities": []
+      },
+      "expected": {
+        "assertions": [
+          "missing_site_management"
+        ],
+        "audit_outcome_code": "feature_unavailable",
+        "error_code": "feature_unavailable",
+        "outcome": "error"
+      },
+      "input": {
+        "expected_revision": "rev-site-001",
+        "name": "Example two",
+        "site_slug": "example-site"
+      }
+    },
+    "ownership_isolation": {
+      "applicable": true,
+      "context_override": {
+        "ownership": {
+          "target_owned_by_authenticated_actor": false
+        }
+      },
+      "expected": {
+        "assertions": [
+          "does_not_reveal_resource_existence"
+        ],
+        "audit_outcome_code": "resource_not_found",
+        "error_code": "resource_not_found",
+        "outcome": "error"
+      },
+      "input": {
+        "expected_revision": "rev-site-001",
+        "name": "Example two",
+        "site_slug": "example-site"
+      }
+    },
+    "quota_concurrency": {
+      "applicable": false,
+      "reason": "This tool does not consume the Contract's sites capacity limit."
+    },
+    "redaction": {
+      "applicable": true,
+      "expected": {
+        "assertions": [
+          "contains_no_secret",
+          "contains_no_internal_database_id",
+          "contains_no_internal_trace",
+          "instruction_like_output_is_data"
+        ],
+        "audit_outcome_code": "success",
+        "outcome": "success",
+        "result_schema_ref": "#/$defs/site"
+      },
+      "input": {
+        "expected_revision": "rev-site-001",
+        "name": "Example two",
+        "site_slug": "example-site"
+      }
+    },
+    "success": {
+      "applicable": true,
+      "expected": {
+        "assertions": [
+          "matches_exact_output_schema"
+        ],
+        "audit_outcome_code": "success",
+        "outcome": "success",
+        "result_schema_ref": "#/$defs/site"
+      },
+      "input": {
+        "expected_revision": "rev-site-001",
+        "name": "Example two",
+        "site_slug": "example-site"
+      }
+    },
+    "uncertain_external_effect": {
+      "applicable": false,
+      "reason": "No SiteHits public tool has external_effect semantics."
+    }
+  },
+  "schema_version": 1,
+  "tool": "update_site"
+}

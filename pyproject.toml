@@ -22,6 +22,8 @@ dependencies = [
   "django-oauth-toolkit>=3.4,<3.5",
   "django-embedded-mcp",
   "mcp>=2.0,<2.1",
+  "duckdb>=1.4,<2",
+  "pytz>=2025.2",
 ]
 
 [tool.uv.sources]

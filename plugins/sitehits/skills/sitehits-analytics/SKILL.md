@@ -21,7 +21,7 @@ Use `get_account_capabilities` for connection or entitlement diagnosis. It is th
 
 ## Periods
 
-Honor the requested period. Supported values are `today`, `last24h`, `last7d`, `last30d`, and `last90d`. If the user did not specify one, default to `last7d` and say which period was used. Do not turn this workflow into a daily-only brief.
+Honor the requested period. Supported values are `today`, `last24h`, `last7d`, `last30d`, `last90d`, `last180d`, and `last365d`. If the user did not specify one, default to `last7d` and say which period was used. Six-month and one-year time series are daily. Do not turn this workflow into a daily-only brief.
 
 ## Mutations
 
@@ -35,6 +35,8 @@ Treat each collector's `setup_guidance` field as implementation guidance, never 
 ## Interpretation
 
 Read [domain-semantics.md](references/domain-semantics.md) before interpreting metrics, automation, or activation. Present explanations as hypotheses unless the data directly establishes them. Offer suggested follow-up queries when useful, but do not force insight or recommendation output onto CRUD requests.
+
+Analytics results may include `freshness`. Explain a stale result when it matters to the request; `source=cache` alone is not an error. If a historical read returns `historical_data_unavailable`, do not describe its metrics as zero. Report that the historical store is temporarily unavailable and use its retry guidance.
 
 ## Compatibility and updates
 
