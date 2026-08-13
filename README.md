@@ -281,8 +281,8 @@ overrides from `.env-prod` into the preserved runtime environment.
 
 Both methods preserve the submitted website and resume at `/onboarding/`. New tracked sites are owned by the authenticated user; regular users can only open and query their own sites.
 
-The included image contains both entrypoints; orchestration starts one web container/process with
-`scripts/start.sh web` and one MCP container/process with `scripts/start.sh mcp`. Health checks for
+The native checkout contains both entrypoints; orchestration starts the existing web process with
+`scripts/start.sh web` and a separate MCP process with `scripts/start.sh mcp`. Health checks for
 the web process should target `/health/`; MCP acceptance uses authenticated initialize/bootstrap
 smoke through the public reverse proxy.
 

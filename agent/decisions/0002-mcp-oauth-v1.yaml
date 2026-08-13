@@ -31,7 +31,7 @@
     },
     {
       "id": "runtime-topology",
-      "decision": "Production uses PostgreSQL 17. Web and MCP run as separate digest-pinned containers managed by distinct systemd units behind the same-origin reverse proxy and share the product account model, database, settings, and service layer."
+      "decision": "Production uses PostgreSQL 17. The existing Django web socket and the dedicated MCP process run from the same exact native Git checkout and Python virtualenv, are managed by systemd behind the same-origin reverse proxy, and share the product account model, database, settings, and service layer."
     },
     {
       "id": "persistent-operations",
@@ -43,11 +43,11 @@
     },
     {
       "id": "immutable-release",
-      "decision": "The server runtime is published as a GHCR image pinned by digest. The deployment topology/config checkout is detached at the descriptor's full git_commit. The MCP descriptor and immutable ChatGPT-plus-Codex-plus-Claude-plus-Claude-Code smoke bundle are GitHub Release assets. Downstream consumers resolve the descriptor, source commit, client compatibility matrix, and image by immutable identity, never by a mutable branch or image tag."
+      "decision": "The server runtime is the exact native Git checkout identified by full git_commit, source-tree digest, dependency-lock digest, and checked-in deploy-contract digest. The MCP descriptor and immutable ChatGPT-plus-Codex-plus-Claude-plus-Claude-Code smoke bundle are GitHub Release assets. Downstream consumers resolve these immutable identities and never depend on a container image or mutable branch."
     },
     {
       "id": "clean-cut-rollout",
-      "decision": "There are no external consumers and no legacy compatibility window. The production cutover removes provisional endpoints and legacy token behavior. Rollback may restore only a prior immutable compatible image/config/descriptor and must never reactivate revoked tokens or consumed codes."
+      "decision": "There are no external consumers and no legacy compatibility window. The production cutover removes provisional endpoints and legacy token behavior. Rollback may restore only a prior compatible exact commit, dependency lock, deploy config and descriptor and must never reactivate revoked tokens or consumed codes."
     }
   ],
   "migration_plan": [
@@ -55,17 +55,17 @@
     "Apply additive OAuth, audit, rate-limit, cleanup-index, and constraint migrations before routing traffic to the new MCP process.",
     "Drain and stop every old web/MCP writer before refresh-family migrations 0002 through 0004; this clean-cut release does not claim zero-downtime migration.",
     "Run code-exchange, refresh-family, revoke, quota, and cleanup concurrency suites against PostgreSQL 17 rather than SQLite.",
-    "Deploy the digest-pinned GHCR image to staging, execute ChatGPT, Codex, Claude/Claude Desktop, and Claude Code acceptance over CIMD plus separately evidenced DCR fallback, then run Inspector diagnostics and promote the same digest to production.",
-    "Seal release/mcp-release.json only after immutable image, registry, smoke, audit, refresh, revoke, cleanup, and rollback evidence exists."
+    "Run local conformance first, then deploy the exact native source candidate directly to production; execute ChatGPT, Codex, Claude/Claude Desktop, and Claude Code acceptance over CIMD plus separately evidenced DCR fallback, then run Inspector diagnostics.",
+    "Seal release/mcp-release.json only after exact source, dependency lock, deploy contract, registry, smoke, audit, refresh, revoke, cleanup, and rollback evidence exists."
   ],
   "rollback_plan": [
-    "Keep the previous immutable image, configuration, descriptor, and database backup available until the post-deploy rollback smoke is green.",
-    "If additive schema remains backward-compatible, route MCP traffic to the previous image and repeat discovery, exact-resource, OAuth, initialize, bootstrap, audit, refresh, and revoke smoke.",
-    "If schema is not backward-compatible, do not downgrade code or reverse state transitions; disable new traffic if necessary and roll forward a corrective image.",
+    "Keep the previous exact commit, dependency lock, configuration, deploy contract, descriptor, and database backup available until the post-deploy rollback smoke is green.",
+    "If additive schema remains backward-compatible, restore the previous native checkout/config and repeat discovery, exact-resource, OAuth, initialize, bootstrap, audit, refresh, and revoke smoke.",
+    "If schema is not backward-compatible, do not downgrade code or reverse state transitions; disable new traffic if necessary and roll forward a corrective native release.",
     "A rollback must preserve revocations, consumed authorization codes, refresh-family replay decisions, audit records, and cleanup evidence."
   ],
   "consequences": [
-    "Stage 1 is not releasable from repository artifacts alone; production PostgreSQL, real-client, GHCR, GitHub Release, cleanup-health, and rollback evidence are mandatory.",
+    "Stage 1 is not releasable from repository artifacts alone; production PostgreSQL, native deployment, real-client, GitHub Release, cleanup-health, and rollback evidence are mandatory.",
     "A stale or unreachable CIMD document makes that client temporarily unusable; the last good document remains stored for audit but is never silently authorized after expiry.",
     "DCR remains operational until its role-owned 90-day removal evidence is complete; CIMD-first does not authorize early fallback removal.",
     "MCP server SemVer remains independent of the Agent Contract version; no mcp_contract_version is introduced.",

@@ -16,15 +16,14 @@ normalize case, ports, paths, percent encoding, or trailing slashes.
 
 - PostgreSQL 17 is the only Stage 1 acceptance database. SQLite is useful for
   local unit tests but is not concurrency evidence.
-- Install `deploy/systemd/sitehits-web.service` and
-  `deploy/systemd/sitehits-mcp.service` as separate processes. They share the
-  same environment file, database, product account model, and service layer.
-  Both container processes bind only to loopback; public traffic reaches them
-  exclusively through the canonical TLS reverse proxy.
-- Set `SITEHITS_MCP_IMAGE_REF` to the exact
-  `ghcr.io/onurmatik/site-hits@sha256:<digest>` sealed into the release descriptor.
-  The units validate this form, pull that digest, and never execute a mutable tag
-  or the checkout's virtual environment.
+- Keep the existing `app@sitehits.socket` Django web process and install
+  `deploy/systemd/sitehits-mcp.service` as a separate native process. Both use
+  `/srv/apps/sitehits`, its `venv`, the same environment file, database, product
+  account model, and service layer. They bind only to loopback; public traffic
+  reaches them exclusively through the canonical TLS reverse proxy.
+- Runtime identity is the full Git commit plus source-tree, dependency-lock and
+  checked-in deploy-contract SHA-256 digests sealed into the release descriptor.
+  Docker, OCI images and a container registry are not part of this deployment.
 - `config.asgi:application` is Django-only. The dedicated resource process uses
   `mcp_gateway.mcp_asgi:application`; never remount MCP into the web ASGI app.
 - Include `deploy/nginx/sitehits-mcp.locations.conf` inside the existing
@@ -63,16 +62,16 @@ in the same clean-cut release; do not advertise them as aliases.
    stop every old web/MCP writer before `0002` and keep traffic drained through
    `0004`. Do not claim zero-downtime migration. A future zero-downtime rollout
    would require a separate dual-write expand/contract release.
-3. Run `manage.py migrate --plan`, then apply migrations on staging. Exercise
+3. Run `manage.py migrate --plan`, then apply migrations locally against the
+   production PostgreSQL engine/version where possible. Exercise
    concurrent code exchange, refresh rotation/replay, revoke, rate-limit
    consumption, and cleanup against PostgreSQL 17.
-4. Build the image once, publish it to
-   `ghcr.io/onurmatik/site-hits`, and record the immutable
-   `sha256:<64-hex>` digest. Set `SITEHITS_MCP_GIT_COMMIT` to the exact full
-   source commit used for that image; the deployment task must detach the
-   topology/config checkout at this commit rather than a mutable branch. Deploy
-   that commit and digest to staging.
-5. Install/reload the two process units. After migrations succeed, run the
+4. Run the checked-in Fabric entrypoint. It updates the native checkout and
+   virtualenv, takes the PostgreSQL backup, applies migrations, refreshes the
+   existing web socket, and installs the MCP/cleanup/nginx contract. With no
+   staging environment, production-only callback and reverse-proxy evidence is
+   collected from this controlled production candidate before release sealing.
+5. Install/reload the native process units. After migrations succeed, run the
    cleanup service once to seed its durable success record; only then enable the
    persistent cleanup and hourly health timers. Route only `/mcp` to the
    dedicated MCP process on port 8001; public discovery, `/oauth/`, consent, and
@@ -93,8 +92,8 @@ in the same clean-cut release; do not advertise them as aliases.
    `http://localhost:<ephemeral-port>/callback`; do not substitute an IP host,
    HTTPS localhost, or another path in its acceptance record.
 7. Verify correlation IDs, OAuth/tool audit mapping, digest-only credential
-   storage, redaction, cleanup output, and alerts. Promote the identical image
-   digest to production and repeat the real-client smoke.
+   storage, redaction, cleanup output, and alerts. Repeat the real-client smoke
+   against the exact deployed native candidate.
 
 ## Retention and cleanup health
 
@@ -190,7 +189,7 @@ smoke evidence object outside the source tree with these exact keys:
     "rollback"
   ],
   "git_commit": "<full-lowercase-commit>",
-  "image_digest": "sha256:<ghcr-image-digest>",
+  "source_tree_sha256": "sha256:<native-source-tree-digest>",
   "issuer": "https://sitehits.io",
   "resource": "https://sitehits.io/mcp",
   "tool_registry_sha256": "sha256:<canonical-registry-digest>",
@@ -212,7 +211,7 @@ Generate the descriptor twice and compare bytes:
 python -m mcp_gateway.release \
   --server-version <semver> \
   --git-commit <full-commit> \
-  --image-digest sha256:<digest> \
+  --source-tree-sha256 sha256:<digest> \
   --client-compatibility integration/client-compatibility.yaml \
   --smoke-evidence /secure/evidence/mcp-smoke.json \
   --output /tmp/mcp-release.first.json
@@ -220,7 +219,7 @@ python -m mcp_gateway.release \
 python -m mcp_gateway.release \
   --server-version <semver> \
   --git-commit <full-commit> \
-  --image-digest sha256:<digest> \
+  --source-tree-sha256 sha256:<digest> \
   --client-compatibility integration/client-compatibility.yaml \
   --smoke-evidence /secure/evidence/mcp-smoke.json \
   --output /tmp/mcp-release.second.json
@@ -230,7 +229,8 @@ cmp /tmp/mcp-release.first.json /tmp/mcp-release.second.json
 
 Validate against `release/mcp-release.schema.json`, attach the exact descriptor
 and evidence bundle to GitHub Release `sitehits-mcp-v<server-version>`, and
-verify the GHCR digest before promotion. No `mcp_contract_version` exists.
+verify the source-tree, dependency-lock and deploy-contract digests before
+release sealing. No `mcp_contract_version` exists.
 The manual `MCP Stage 1 release seal` workflow performs this same two-pass
 generation, schema validation, and immutable asset upload after the smoke
 evidence asset exists; its protected production-release environment is the
@@ -239,14 +239,14 @@ normal sealing path.
 ## Rollback
 
 1. Stop new MCP routing or return maintenance before changing the process.
-2. If all applied schema remains backward-compatible, route port 8001 to the
-   previous immutable GHCR image and matching config/descriptor. Do not move a
-   mutable tag.
+2. If all applied schema remains backward-compatible, restore the previous exact
+   native commit, dependency lock and matching config/descriptor, then restart
+   the native web and MCP processes.
 3. Never unconsume an authorization code, un-revoke a token/client, restore a
    replayed refresh family, or delete audit evidence to make rollback pass.
 4. If the schema is not backward-compatible, do not downgrade code or reverse
    migrations. Keep traffic disabled as needed and roll forward a corrective
-   image.
+   native release.
 5. After rollback, repeat discovery, exact-resource, ChatGPT, Codex,
    Claude/Claude Desktop, and Claude Code OAuth over the required registration
    paths, initialize, registry, bootstrap, refresh, revoke, audit, and cleanup

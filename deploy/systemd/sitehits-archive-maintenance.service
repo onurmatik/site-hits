@@ -2,13 +2,14 @@
 Description=SiteHits verified analytics archive maintenance
 After=network-online.target postgresql.service
 Wants=network-online.target
-OnFailure=sitehits-mcp-alert@%n.service
 
 [Service]
 Type=oneshot
+User=ubuntu
+Group=www-data
 WorkingDirectory=/srv/apps/sitehits
 EnvironmentFile=/srv/apps/sitehits/.env
-ExecStartPre=/srv/apps/sitehits/deploy/validate-image-ref.sh
-ExecStart=/usr/bin/docker run --rm --network host --env-file /srv/apps/sitehits/.env --read-only --tmpfs /tmp:rw,noexec,nosuid,size=768m --cap-drop ALL --security-opt no-new-privileges --mount type=bind,src=/var/lib/GeoIP/GeoLite2-City.mmdb,dst=/var/lib/GeoIP/GeoLite2-City.mmdb,readonly ${SITEHITS_MCP_IMAGE_REF} python manage.py maintain_event_archive --limit 12
+Environment=HOME=/home/ubuntu
+ExecStart=/srv/apps/sitehits/venv/bin/python manage.py maintain_event_archive --limit 12
 NoNewPrivileges=true
 PrivateTmp=true

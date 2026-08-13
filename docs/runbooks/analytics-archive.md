@@ -51,7 +51,7 @@ bucket, region, and KMS key when archiving is enabled. These invariants are chec
 - query and source-delete flags require archive export to be enabled.
 
 DuckDB's `httpfs`, `postgres`, and `sqlite` extensions are installed into the image at build time.
-Production containers do not download extensions at runtime. Every worker uses an in-memory
+Production workers do not download extensions at runtime. Every worker uses an in-memory
 DuckDB connection; no shared `.duckdb` file exists.
 
 ## Rollout

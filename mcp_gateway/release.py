@@ -1,8 +1,9 @@
 """Deterministic Stage 1 MCP release descriptor generation.
 
 The generator is deliberately side-effect free unless ``--output`` is supplied.
-Production callers must provide immutable GHCR image and GitHub Release smoke
-evidence; the repository does not contain a placeholder ``mcp-release.json``.
+Production callers must provide the exact native source-tree identity and GitHub
+Release smoke evidence; the repository does not contain a placeholder
+``mcp-release.json``.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from .registry import (
 )
 from .release_identity import SERVER_VERSION
 
+ROOT = Path(__file__).resolve().parents[1]
 ISSUER = "https://sitehits.io"
 RESOURCE = "https://sitehits.io/mcp"
 DEFAULT_CLIENT_COMPATIBILITY_PATH = (
@@ -75,6 +77,47 @@ def _load_json(path: str | Path) -> dict[str, Any]:
 
 def _digest_bytes(payload: bytes) -> str:
     return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+
+
+def _framed_tree_digest(paths: list[Path]) -> str:
+    digest = hashlib.sha256()
+    files: list[Path] = []
+    for path in paths:
+        if path.is_dir():
+            files.extend(
+                candidate
+                for candidate in path.rglob("*")
+                if candidate.is_file()
+                and "__pycache__" not in candidate.parts
+                and candidate.suffix != ".pyc"
+                and candidate.name != ".credentials.env"
+            )
+        elif path.is_file():
+            files.append(path)
+    for path in sorted(set(files), key=lambda item: item.relative_to(ROOT).as_posix()):
+        relative = path.relative_to(ROOT).as_posix().encode()
+        digest.update(relative)
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return f"sha256:{digest.hexdigest()}"
+
+
+def dependency_lock_digest() -> str:
+    return _digest_bytes((ROOT / "uv.lock").read_bytes())
+
+
+def deploy_contract_digest() -> str:
+    return _framed_tree_digest(
+        [
+            ROOT / ".deploy",
+            ROOT / "deploy" / "nginx",
+            ROOT / "deploy" / "systemd",
+            ROOT / "deploy" / "send-mcp-alert.py",
+            ROOT / "scripts" / "install_sitehits_mcp_nginx.py",
+            ROOT / "scripts" / "start.sh",
+        ]
+    )
 
 
 def canonical_json(value: object) -> str:
@@ -242,7 +285,7 @@ def _validate_smoke_evidence(
     *,
     server_version: str,
     git_commit: str,
-    image_digest: str,
+    source_tree_sha256: str,
     registry_digest: str,
     client_compatibility_digest: str,
     client_records: list[dict[str, str]],
@@ -252,7 +295,7 @@ def _validate_smoke_evidence(
         "diagnostic_clients",
         "flows",
         "git_commit",
-        "image_digest",
+        "source_tree_sha256",
         "issuer",
         "resource",
         "tool_registry_sha256",
@@ -307,7 +350,7 @@ def _validate_smoke_evidence(
         raise ValueError("Smoke evidence does not cover the required Stage 1 flows")
     exact_values = {
         "git_commit": git_commit,
-        "image_digest": image_digest,
+        "source_tree_sha256": source_tree_sha256,
         "issuer": ISSUER,
         "resource": RESOURCE,
         "tool_registry_sha256": registry_digest,
@@ -365,7 +408,7 @@ def build_descriptor(
     contract_path: str | Path,
     contract_descriptor_path: str | Path,
     git_commit: str,
-    image_digest: str,
+    source_tree_sha256: str,
     smoke_evidence_path: str | Path,
     client_compatibility_path: str | Path = DEFAULT_CLIENT_COMPATIBILITY_PATH,
 ) -> dict[str, Any]:
@@ -374,11 +417,11 @@ def build_descriptor(
     if not SEMVER_PATTERN.fullmatch(server_version):
         raise ValueError("server_version must be SemVer")
     if server_version != SERVER_VERSION:
-        raise ValueError("server_version must match the deployed runtime artifact")
+        raise ValueError("server_version must match the deployed native runtime")
     if not COMMIT_PATTERN.fullmatch(git_commit):
         raise ValueError("git_commit must be a lowercase 40-character SHA-1 object ID")
-    if not DIGEST_PATTERN.fullmatch(image_digest):
-        raise ValueError("image_digest must use sha256:<64 lowercase hex>")
+    if not DIGEST_PATTERN.fullmatch(source_tree_sha256):
+        raise ValueError("source_tree_sha256 must use sha256:<64 lowercase hex>")
 
     contract_path = Path(contract_path)
     contract_descriptor_path = Path(contract_descriptor_path)
@@ -411,7 +454,7 @@ def build_descriptor(
         evidence,
         server_version=server_version,
         git_commit=git_commit,
-        image_digest=image_digest,
+        source_tree_sha256=source_tree_sha256,
         registry_digest=registry_digest,
         client_compatibility_digest=client_compatibility_digest,
         client_records=client_records,
@@ -431,7 +474,9 @@ def build_descriptor(
             "supported_versions": [version],
         },
         "git_commit": git_commit,
-        "image_digest": image_digest,
+        "source_tree_sha256": source_tree_sha256,
+        "dependency_lock_sha256": dependency_lock_digest(),
+        "deploy_contract_sha256": deploy_contract_digest(),
         "tool_registry_sha256": registry_digest,
         "client_compatibility_sha256": client_compatibility_digest,
         "oauth": {"issuer": ISSUER, "resource": RESOURCE},
@@ -446,7 +491,7 @@ def main() -> int:
     parser.add_argument("--contract", default="agent/contract.yaml")
     parser.add_argument("--contract-descriptor", default="release/contract-release.json")
     parser.add_argument("--git-commit", required=True)
-    parser.add_argument("--image-digest", required=True)
+    parser.add_argument("--source-tree-sha256", required=True)
     parser.add_argument("--smoke-evidence", required=True)
     parser.add_argument(
         "--client-compatibility",
@@ -460,7 +505,7 @@ def main() -> int:
             contract_path=args.contract,
             contract_descriptor_path=args.contract_descriptor,
             git_commit=args.git_commit,
-            image_digest=args.image_digest,
+            source_tree_sha256=args.source_tree_sha256,
             smoke_evidence_path=args.smoke_evidence,
             client_compatibility_path=args.client_compatibility,
         )

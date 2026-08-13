@@ -54,7 +54,7 @@ def _load(path):
     return json.loads(path.read_text())
 
 
-def _smoke_evidence(contract, *, commit, image_digest):
+def _smoke_evidence(contract, *, commit, source_tree_sha256):
     def client(version, *, diagnostic=False):
         status = "diagnostic-passed" if diagnostic else "passed"
         return {
@@ -75,7 +75,7 @@ def _smoke_evidence(contract, *, commit, image_digest):
         "diagnostic_clients": {"MCP Inspector": client("0.18.0", diagnostic=True)},
         "flows": sorted(release.REQUIRED_SMOKE_FLOWS),
         "git_commit": commit,
-        "image_digest": image_digest,
+        "source_tree_sha256": source_tree_sha256,
         "issuer": release.ISSUER,
         "resource": release.RESOURCE,
         "tool_registry_sha256": release.canonical_tool_registry_digest(contract),
@@ -93,10 +93,10 @@ def _smoke_evidence(contract, *, commit, image_digest):
 def test_released_contract_descriptor_can_seal_the_mcp_candidate(tmp_path):
     contract = _load(CONTRACT_PATH)
     commit = "0123456789abcdef0123456789abcdef01234567"
-    image_digest = f"sha256:{'a' * 64}"
+    source_tree_sha256 = f"sha256:{'a' * 64}"
     evidence_path = tmp_path / "evidence.json"
     evidence_path.write_text(
-        json.dumps(_smoke_evidence(contract, commit=commit, image_digest=image_digest))
+        json.dumps(_smoke_evidence(contract, commit=commit, source_tree_sha256=source_tree_sha256))
     )
     assert contract["agent_contract_version"] == "2.0.0"
     assert _load(CONTRACT_DESCRIPTOR_PATH)["agent_contract_version"] == "2.0.0"
@@ -105,10 +105,13 @@ def test_released_contract_descriptor_can_seal_the_mcp_candidate(tmp_path):
         contract_path=CONTRACT_PATH,
         contract_descriptor_path=CONTRACT_DESCRIPTOR_PATH,
         git_commit=commit,
-        image_digest=image_digest,
+        source_tree_sha256=source_tree_sha256,
         smoke_evidence_path=evidence_path,
     )
     assert descriptor["agent_contract"]["agent_contract_version"] == "2.0.0"
+    assert descriptor["source_tree_sha256"] == source_tree_sha256
+    assert descriptor["dependency_lock_sha256"] == release.dependency_lock_digest()
+    assert descriptor["deploy_contract_sha256"] == release.deploy_contract_digest()
 
 
 def test_pinned_runtime_dependencies_and_shared_adapter_public_seam():
@@ -135,18 +138,18 @@ def test_clean_cut_legacy_models_are_cleanup_only():
 def test_release_descriptor_rejects_runtime_version_drift(tmp_path):
     contract = _load(CONTRACT_PATH)
     commit = "0123456789abcdef0123456789abcdef01234567"
-    image_digest = f"sha256:{'a' * 64}"
+    source_tree_sha256 = f"sha256:{'a' * 64}"
     evidence_path = tmp_path / "evidence.json"
     evidence_path.write_text(
-        json.dumps(_smoke_evidence(contract, commit=commit, image_digest=image_digest))
+        json.dumps(_smoke_evidence(contract, commit=commit, source_tree_sha256=source_tree_sha256))
     )
-    with pytest.raises(ValueError, match="deployed runtime artifact"):
+    with pytest.raises(ValueError, match="deployed native runtime"):
         release.build_descriptor(
             server_version="0.3.1",
             contract_path=CONTRACT_PATH,
             contract_descriptor_path=CONTRACT_DESCRIPTOR_PATH,
             git_commit=commit,
-            image_digest=image_digest,
+            source_tree_sha256=source_tree_sha256,
             smoke_evidence_path=evidence_path,
         )
 
@@ -206,7 +209,7 @@ def test_release_registry_is_contract_derived_exact_and_content_addressed():
 def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path, monkeypatch):
     contract = _load(CONTRACT_PATH)
     commit = "0123456789abcdef0123456789abcdef01234567"
-    image_digest = f"sha256:{'b' * 64}"
+    source_tree_sha256 = f"sha256:{'b' * 64}"
     candidate_descriptor = _load(CONTRACT_DESCRIPTOR_PATH)
     candidate_descriptor["agent_contract_version"] = contract["agent_contract_version"]
     candidate_descriptor["contract_sha256"] = hashlib.sha256(CONTRACT_PATH.read_bytes()).hexdigest()
@@ -222,7 +225,7 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path, mon
         "PINNED_AGENT_CONTRACT_DESCRIPTOR_SHA256",
         hashlib.sha256(candidate_descriptor_path.read_bytes()).hexdigest(),
     )
-    evidence = _smoke_evidence(contract, commit=commit, image_digest=image_digest)
+    evidence = _smoke_evidence(contract, commit=commit, source_tree_sha256=source_tree_sha256)
     evidence["clients"].pop("Codex")
     evidence_path = tmp_path / "missing-client.json"
     evidence_path.write_text(json.dumps(evidence))
@@ -235,11 +238,11 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path, mon
             contract_path=CONTRACT_PATH,
             contract_descriptor_path=candidate_descriptor_path,
             git_commit=commit,
-            image_digest=image_digest,
+            source_tree_sha256=source_tree_sha256,
             smoke_evidence_path=evidence_path,
         )
 
-    evidence = _smoke_evidence(contract, commit=commit, image_digest=image_digest)
+    evidence = _smoke_evidence(contract, commit=commit, source_tree_sha256=source_tree_sha256)
     evidence["tool_registry_sha256"] = f"sha256:{'c' * 64}"
     evidence_path.write_text(json.dumps(evidence))
     with pytest.raises(ValueError, match="tool_registry_sha256"):
@@ -248,11 +251,11 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path, mon
             contract_path=CONTRACT_PATH,
             contract_descriptor_path=candidate_descriptor_path,
             git_commit=commit,
-            image_digest=image_digest,
+            source_tree_sha256=source_tree_sha256,
             smoke_evidence_path=evidence_path,
         )
 
-    evidence = _smoke_evidence(contract, commit=commit, image_digest=image_digest)
+    evidence = _smoke_evidence(contract, commit=commit, source_tree_sha256=source_tree_sha256)
     evidence["client_compatibility_sha256"] = f"sha256:{'d' * 64}"
     evidence_path.write_text(json.dumps(evidence))
     with pytest.raises(ValueError, match="client_compatibility_sha256"):
@@ -261,11 +264,11 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path, mon
             contract_path=CONTRACT_PATH,
             contract_descriptor_path=candidate_descriptor_path,
             git_commit=commit,
-            image_digest=image_digest,
+            source_tree_sha256=source_tree_sha256,
             smoke_evidence_path=evidence_path,
         )
 
-    evidence = _smoke_evidence(contract, commit=commit, image_digest=image_digest)
+    evidence = _smoke_evidence(contract, commit=commit, source_tree_sha256=source_tree_sha256)
     evidence["evidence_uri"] = (
         "https://github.com/onurmatik/site-hits/releases/download/"
         "sitehits-mcp-v0.3.1/mcp-smoke.json"
@@ -277,11 +280,11 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path, mon
             contract_path=CONTRACT_PATH,
             contract_descriptor_path=candidate_descriptor_path,
             git_commit=commit,
-            image_digest=image_digest,
+            source_tree_sha256=source_tree_sha256,
             smoke_evidence_path=evidence_path,
         )
 
-    evidence = _smoke_evidence(contract, commit=commit, image_digest=image_digest)
+    evidence = _smoke_evidence(contract, commit=commit, source_tree_sha256=source_tree_sha256)
     evidence["evidence_sha256"] = f"sha256:{'4' * 64}"
     evidence_path.write_text(json.dumps(evidence))
     with pytest.raises(ValueError, match="Smoke evidence keys differ"):
@@ -290,7 +293,7 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path, mon
             contract_path=CONTRACT_PATH,
             contract_descriptor_path=candidate_descriptor_path,
             git_commit=commit,
-            image_digest=image_digest,
+            source_tree_sha256=source_tree_sha256,
             smoke_evidence_path=evidence_path,
         )
 
@@ -300,7 +303,7 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path, mon
     tampered_contract_path.write_text(json.dumps(tampered_contract))
     upstream_path = tmp_path / "tampered-contract-release.json"
     evidence_path.write_text(
-        json.dumps(_smoke_evidence(contract, commit=commit, image_digest=image_digest))
+        json.dumps(_smoke_evidence(contract, commit=commit, source_tree_sha256=source_tree_sha256))
     )
     with pytest.raises(ValueError, match="Contract content"):
         release.build_descriptor(
@@ -308,7 +311,7 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path, mon
             contract_path=tampered_contract_path,
             contract_descriptor_path=candidate_descriptor_path,
             git_commit=commit,
-            image_digest=image_digest,
+            source_tree_sha256=source_tree_sha256,
             smoke_evidence_path=evidence_path,
         )
 
@@ -321,7 +324,7 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path, mon
             contract_path=CONTRACT_PATH,
             contract_descriptor_path=upstream_path,
             git_commit=commit,
-            image_digest=image_digest,
+            source_tree_sha256=source_tree_sha256,
             smoke_evidence_path=evidence_path,
         )
 
@@ -329,7 +332,7 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path, mon
 def test_stage1_sources_adr_and_runbook_capture_resolved_operations():
     sources = _load(SOURCES_PATH)["descriptors"]["mcp_server"]
     assert sources["authoritative_store"] == "github_release_asset"
-    assert sources["runtime_artifact_store"] == "ghcr_oci_digest"
+    assert sources["runtime_artifact_store"] == "exact_native_git_checkout"
     assert sources["immutable_ref_pattern"] == "sitehits-mcp-v{server_version}"
     assert sources["descriptor_path"] == "release/mcp-release.json"
     assert "ChatGPT-plus-Codex-plus-Claude-plus-Claude-Code" in sources["consumer_resolution"]
@@ -368,7 +371,7 @@ def test_stage1_sources_adr_and_runbook_capture_resolved_operations():
         "localhost",
         "PostgreSQL 17",
         "systemd",
-        "GHCR",
+        "native Git checkout",
         "GitHub Release",
         "client_id_metadata_document_supported=true",
         "repository-maintainer",
@@ -388,7 +391,6 @@ def test_stage1_sources_adr_and_runbook_capture_resolved_operations():
 
 
 def test_systemd_process_boundary_and_daily_cleanup_contract():
-    web = (ROOT / "deploy" / "systemd" / "sitehits-web.service").read_text()
     mcp = (ROOT / "deploy" / "systemd" / "sitehits-mcp.service").read_text()
     cleanup = (ROOT / "deploy" / "systemd" / "sitehits-mcp-cleanup.service").read_text()
     timer = (ROOT / "deploy" / "systemd" / "sitehits-mcp-cleanup.timer").read_text()
@@ -396,22 +398,19 @@ def test_systemd_process_boundary_and_daily_cleanup_contract():
     health_timer = (ROOT / "deploy" / "systemd" / "sitehits-mcp-cleanup-health.timer").read_text()
     alert = (ROOT / "deploy" / "systemd" / "sitehits-mcp-alert@.service").read_text()
     nginx = (ROOT / "deploy" / "nginx" / "sitehits-mcp.locations.conf").read_text()
-    for unit in (web, mcp, cleanup):
-        assert "${SITEHITS_MCP_IMAGE_REF}" in unit
-        assert "/srv/apps/sitehits/venv/" not in unit
-    assert "sitehits-web" in web and " web" in web
-    assert "--env WEB_HOST=127.0.0.1" in web
-    assert web.index("python manage.py check --deploy") < web.index(
-        "python manage.py migrate --noinput"
-    )
-    assert "sitehits-mcp" in mcp and " mcp" in mcp
+    for unit in (mcp, cleanup, health, alert):
+        assert "/srv/apps/sitehits/venv/" in unit
+        assert "/usr/bin/docker" not in unit
+        assert "SITEHITS_MCP_IMAGE_REF" not in unit
+    assert not (ROOT / "deploy" / "systemd" / "sitehits-web.service").exists()
+    assert "ExecStart=/bin/sh /srv/apps/sitehits/scripts/start.sh mcp" in mcp
     assert "cleanup_mcp_oauth" in cleanup
     assert "purge_old_events" in cleanup
     assert "OnCalendar=daily" in timer and "Persistent=true" in timer
     assert "check_mcp_oauth_cleanup_health" in health
     assert "OnUnitActiveSec=1h" in health_timer and "Persistent=true" in health_timer
     assert "OnFailure=sitehits-mcp-alert@%n.service" in cleanup
-    assert "send-mcp-alert.py %i" in alert
+    assert "venv/bin/python /srv/apps/sitehits/deploy/send-mcp-alert.py %i" in alert
     assert "location = /mcp" in nginx
     assert "location ^~ /oauth/" in nginx
     assert "location ^~ /accounts/" in nginx
@@ -421,23 +420,26 @@ def test_systemd_process_boundary_and_daily_cleanup_contract():
     assert "proxy_set_header X-Request-ID $request_id" in nginx
 
 
-def test_deploy_seeds_cleanup_health_before_enabling_persistent_health_timer():
+def test_deploy_uses_native_venv_and_existing_socket_topology():
     deploy_source = (ROOT / ".deploy" / "fabfile.py").read_text()
-    stop_timers = deploy_source.index('"systemctl disable --now sitehits-mcp-cleanup.timer "')
-    migrate_and_start_web = deploy_source.index(
-        'connection.sudo("systemctl start sitehits-web.service")'
-    )
-    seed_cleanup = deploy_source.index(
-        'connection.sudo("systemctl start sitehits-mcp-cleanup.service")'
-    )
-    enable_timers = deploy_source.index('"systemctl enable --now sitehits-mcp-cleanup.timer "')
+    install_dependencies = deploy_source.index("install -r requirements.txt")
+    collect_static = deploy_source.index("manage.py collectstatic --noinput")
+    migrate = deploy_source.index("manage.py migrate --noinput")
+    restart_socket = deploy_source.index("systemctl restart app@{PROJECT_NAME}.socket")
 
-    assert stop_timers < migrate_and_start_web < seed_cleanup < enable_timers
+    assert "git reset --hard origin/main" in deploy_source
+    assert "VENV_DIR = f\"{PROJECT_DIR}/venv\"" in deploy_source
+    assert install_dependencies < collect_static < migrate < restart_socket
+    assert "command -v docker" not in deploy_source
+    assert "SITEHITS_MCP_IMAGE_REF" not in deploy_source
+    assert "sitehits-web.service" in deploy_source
+    assert "systemctl disable --now sitehits-web.service" in deploy_source
+    assert "sitehits-mcp.service" in deploy_source
+    assert "app@{PROJECT_NAME}.socket" in deploy_source
 
 
-def test_deploy_installs_archive_jobs_backs_up_and_verifies_public_identity():
+def test_deploy_installs_native_archive_jobs_and_duckdb_extensions():
     deploy_source = (ROOT / ".deploy" / "fabfile.py").read_text()
-    backup_source = (ROOT / ".deploy" / "backup_database.py").read_text()
     archive_unit = (
         ROOT / "deploy" / "systemd" / "sitehits-archive-maintenance.service"
     ).read_text()
@@ -452,20 +454,19 @@ def test_deploy_installs_archive_jobs_backs_up_and_verifies_public_identity():
         "sitehits-historical-cache.timer",
     ):
         assert unit in deploy_source
-    assert deploy_source.index("backup_database(connection)") < deploy_source.index(
-        "install_stage1_topology(connection)"
+    assert "('httpfs', 'postgres')" in deploy_source
+    assert deploy_source.index("install_duckdb_extensions(connection)") < deploy_source.index(
+        "manage.py migrate --noinput"
     )
-    assert "predeploy-{RELEASE_GIT_COMMIT}.dump" in deploy_source
-    assert "agent-manifest.json" in deploy_source
-    assert 'manifest.get("server_version") != "0.3.0"' in deploy_source
-    assert 'manifest.get("agent_contract_version") != "2.0.0"' in deploy_source
-    assert 'if mcp_status != "401"' in deploy_source
-    assert "PGPASSWORD" in backup_source
-    assert '"--dbname",' in backup_source
-    assert '"--format=custom"' in backup_source
+    assert deploy_source.index("manage.py migrate --noinput") < deploy_source.rindex(
+        "install_native_services(connection)"
+    )
+    assert (ROOT / ".deploy" / "backup_database.py").exists()
     for unit in (archive_unit, historical_unit):
-        assert "--read-only" in unit
-        assert "GeoLite2-City.mmdb" in unit
+        assert "User=ubuntu" in unit
+        assert "/srv/apps/sitehits/venv/bin/python" in unit
+        assert "/usr/bin/docker" not in unit
+        assert "SITEHITS_MCP_IMAGE_REF" not in unit
 
 
 def test_stage1_ci_runs_full_postgres_suite_and_history_secret_scan():
@@ -486,6 +487,7 @@ def test_release_seal_ci_generates_validates_and_publishes_exact_descriptor():
     assert "environment: mcp-production-release" in workflow
     assert "gh release download" in workflow
     assert workflow.count("python -m mcp_gateway.release") == 2
+    assert "--source-tree-sha256" in workflow
     assert "--output release/mcp-release.json" in workflow
     assert "cmp \\" in workflow
     assert "release/mcp-release.schema.json" in workflow
@@ -505,30 +507,6 @@ def test_deploy_check_requires_the_postgresql_17_acceptance_engine():
     assert [error.id for error in wrong_version] == ["mcp_gateway.E006"]
 
 
-def test_container_build_installs_local_oauth_package_and_scans_mcp_templates():
-    dockerfile = (ROOT / "Dockerfile").read_text()
-    assert dockerfile.index("COPY packages ./packages") < dockerfile.index(
-        "RUN pip install --no-cache-dir -r requirements.txt"
-    )
-    assert "COPY mcp_gateway ./mcp_gateway" in dockerfile
-    assert "DJANGO_DEBUG=true python manage.py collectstatic --noinput" in dockerfile
-
-
-def test_container_context_excludes_every_local_or_deploy_secret_env_file():
-    patterns = set((ROOT / ".dockerignore").read_text().splitlines())
-
-    assert {
-        ".env",
-        ".env.*",
-        ".env-*",
-        "**/.env",
-        "**/.env.*",
-        "**/.env-*",
-        ".deploy/deploy.env",
-    }.issubset(patterns)
-    assert "!.env.example" in patterns
-
-
 def test_sensitive_proxy_locations_disable_uri_bearing_access_and_error_logs():
     nginx = (ROOT / "deploy" / "nginx" / "sitehits-mcp.locations.conf").read_text()
 
@@ -536,32 +514,6 @@ def test_sensitive_proxy_locations_disable_uri_bearing_access_and_error_logs():
         block = nginx.split(marker, 1)[1].split("}", 1)[0]
         assert "access_log off;" in block
         assert "error_log /dev/null emerg;" in block
-
-
-def test_image_reference_validator_accepts_only_the_immutable_ghcr_digest():
-    validator = ROOT / "deploy" / "validate-image-ref.sh"
-    valid = "ghcr.io/onurmatik/site-hits@sha256:" + "a" * 64
-    accepted = subprocess.run(
-        [str(validator)],
-        env={**os.environ, "SITEHITS_MCP_IMAGE_REF": valid},
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert accepted.returncode == 0, accepted.stderr
-    for invalid in (
-        "ghcr.io/onurmatik/site-hits:latest",
-        "ghcr.io/onurmatik/site-hits@sha256:" + "A" * 64,
-        "ghcr.io/other/site-hits@sha256:" + "a" * 64,
-    ):
-        rejected = subprocess.run(
-            [str(validator)],
-            env={**os.environ, "SITEHITS_MCP_IMAGE_REF": invalid},
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert rejected.returncode == 78
 
 
 def test_alert_webhook_validator_accepts_only_https_without_userinfo():

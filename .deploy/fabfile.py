@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import os
-import re
 import shlex
 from io import BytesIO
 from pathlib import Path
@@ -34,14 +32,13 @@ DEPLOY_HOST = os.environ.get("DEPLOY_HOST", "46.225.14.95")
 KEY_FILENAME = os.environ.get("KEY_FILENAME", "hetzner-stage")
 DEPLOY_USER = os.environ.get("DEPLOY_USER", "root")
 APP_USER = os.environ.get("APP_USER", "ubuntu")
-RELEASE_GIT_COMMIT = os.environ.get("SITEHITS_MCP_GIT_COMMIT", "").strip()
 
 PROJECT_DIR = f"/srv/apps/{PROJECT_NAME}"
+VENV_DIR = f"{PROJECT_DIR}/venv"
 REPO_URL = f"https://github.com/{GITHUB_REPO}.git"
 GEOIP_DB_PATH = "/var/lib/GeoIP/GeoLite2-City.mmdb"
 GEOIP_CONFIG_PATH = "/etc/GeoIP.conf"
 SYSTEMD_UNITS = (
-    "sitehits-web.service",
     "sitehits-mcp.service",
     "sitehits-mcp-cleanup.service",
     "sitehits-mcp-cleanup.timer",
@@ -54,6 +51,9 @@ SYSTEMD_UNITS = (
     "sitehits-historical-cache.timer",
 )
 NGINX_MCP_SNIPPET = "/etc/nginx/snippets/sitehits-mcp.locations.conf"
+NGINX_SITE = os.environ.get(
+    "NGINX_SITE", f"/etc/nginx/sites-available/{PROJECT_NAME}.conf"
+)
 RUNTIME_ENV_KEYS = (
     "DATABASE_URL",
     "ALLOWED_HOSTS",
@@ -91,11 +91,7 @@ RUNTIME_ENV_KEYS = (
     "SITEHITS_MCP_RESOURCE_URL",
     "SITEHITS_MCP_DOCUMENTATION_URL",
     "SITEHITS_MCP_SKILL_UPDATE_URL",
-    "SITEHITS_MCP_IMAGE_REF",
     "SITEHITS_MCP_CORS_ORIGINS",
-    "SITEHITS_MCP_ALERT_WEBHOOK_URL",
-    "WEB_CONCURRENCY",
-    "MCP_WEB_CONCURRENCY",
     "GOOGLE_OAUTH_CLIENT_ID",
     "GOOGLE_OAUTH_CLIENT_SECRET",
     "DJANGO_EMAIL_BACKEND",
@@ -187,48 +183,37 @@ def sync_runtime_env(connection: Connection) -> None:
         app_run(connection, f"rm -f {quote(Path(staged_path).name)}", warn=True)
 
 
-def snapshot_release_state(connection: Connection, previous_commit: str) -> None:
-    """Keep the previous exact source/image identity without exposing runtime secrets."""
-    script = f"""
-umask 077
-{{
-  printf 'SITEHITS_PREVIOUS_GIT_COMMIT={previous_commit}\\n'
-  grep '^SITEHITS_MCP_IMAGE_REF=' .env || true
-}} > .previous-release
-""".strip()
-    app_run(connection, f"bash -lc {quote(script)}")
+def install_duckdb_extensions(connection: Connection) -> None:
+    command = (
+        "import duckdb; "
+        "connection = duckdb.connect(); "
+        "[connection.install_extension(name) for name in ('httpfs', 'postgres')]; "
+        "connection.close()"
+    )
+    app_run(connection, f"{quote(VENV_DIR + '/bin/python')} -c {quote(command)}")
 
 
-def backup_database(connection: Connection) -> None:
+def backup_database(connection: Connection, deployed_commit: str) -> str:
     backup_directory = f"/srv/backups/{PROJECT_NAME}"
-    backup_path = f"{backup_directory}/predeploy-{RELEASE_GIT_COMMIT}.dump"
+    backup_path = f"{backup_directory}/predeploy-{deployed_commit}.dump"
     connection.sudo(
-        f"install -d -o {quote(APP_USER)} -g {quote(APP_USER)} -m 700 {quote(backup_directory)}"
+        f"install -d -o {quote(APP_USER)} -g {quote(APP_USER)} -m 700 "
+        f"{quote(backup_directory)}"
     )
     if connection.run(f"test -s {quote(backup_path)}", warn=True, hide=True).ok:
-        return
+        return backup_path
     app_run(
         connection,
-        f"set -a && . ./.env && set +a && python3 .deploy/backup_database.py {quote(backup_path)}",
+        f"set -a && . ./.env && set +a && "
+        f"python3 .deploy/backup_database.py {quote(backup_path)}",
     )
     connection.sudo(f"chmod 600 {quote(backup_path)}")
     if connection.run(f"test -s {quote(backup_path)}", warn=True, hide=True).failed:
         raise RuntimeError("The pre-deploy PostgreSQL backup was not created.")
+    return backup_path
 
 
-def install_stage1_topology(connection: Connection) -> None:
-    """Install the digest-pinned Stage 1 process topology without mutable checkout runtime."""
-
-    if connection.run("command -v docker", warn=True, hide=True).failed:
-        raise RuntimeError("Docker is required for the immutable GHCR Stage 1 runtime.")
-    app_run(
-        connection,
-        "set -a && . ./.env && set +a && deploy/validate-image-ref.sh",
-    )
-    app_run(
-        connection,
-        "set -a && . ./.env && set +a && python3 deploy/send-mcp-alert.py --check",
-    )
+def install_native_services(connection: Connection) -> None:
     for unit in SYSTEMD_UNITS:
         source = f"{PROJECT_DIR}/deploy/systemd/{unit}"
         destination = f"/etc/systemd/system/{unit}"
@@ -238,81 +223,43 @@ def install_stage1_topology(connection: Connection) -> None:
         f"{quote(PROJECT_DIR + '/deploy/nginx/sitehits-mcp.locations.conf')} "
         f"{quote(NGINX_MCP_SNIPPET)}"
     )
+    helper = f"{PROJECT_DIR}/scripts/install_sitehits_mcp_nginx.py"
+    connection.sudo(
+        f"python3 {quote(helper)} --site-config {quote(NGINX_SITE)} "
+        f"--include-path {quote(NGINX_MCP_SNIPPET)}"
+    )
     connection.sudo("systemctl daemon-reload")
-    if connection.sudo(
-        "nginx -T 2>/dev/null | grep -Fq 'location = /mcp {'",
-        warn=True,
-        hide=True,
-    ).failed:
-        raise RuntimeError(
-            f"Include {NGINX_MCP_SNIPPET} in the canonical TLS server before deployment."
-        )
     connection.sudo("nginx -t")
     connection.sudo("systemctl reload nginx")
+    connection.sudo("systemctl disable --now sitehits-web.service", warn=True)
     connection.sudo(
-        f"systemctl disable --now app@{PROJECT_NAME}.socket app@{PROJECT_NAME}.service",
-        warn=True,
+        "systemctl enable sitehits-mcp.service "
+        "sitehits-mcp-cleanup.timer sitehits-mcp-cleanup-health.timer "
+        "sitehits-archive-maintenance.timer sitehits-historical-cache.timer"
     )
-    # A persistent health timer can fire immediately on an older host. Keep
-    # both timers stopped until the new schema is installed and a successful
-    # cleanup run has seeded the durable health record.
-    connection.sudo(
-        "systemctl disable --now sitehits-mcp-cleanup.timer "
-        "sitehits-mcp-cleanup-health.timer "
-        "sitehits-archive-maintenance.timer "
-        "sitehits-historical-cache.timer",
-        warn=True,
-    )
-    connection.sudo("systemctl enable sitehits-web.service sitehits-mcp.service")
-    # The clean-cut migration adds enforced refresh-family bindings. Stop both
-    # request paths before the web unit applies migrations, then start the exact
-    # same digest for web and MCP.
-    connection.sudo("systemctl stop sitehits-mcp.service sitehits-web.service", warn=True)
-    connection.sudo("systemctl start sitehits-web.service")
+    connection.sudo("systemctl restart sitehits-mcp.service")
     connection.sudo("systemctl start sitehits-mcp-cleanup.service")
-    connection.sudo("systemctl start sitehits-mcp.service")
+    connection.sudo("systemctl start sitehits-mcp-cleanup-health.service")
     connection.sudo(
-        "systemctl enable --now sitehits-mcp-cleanup.timer "
-        "sitehits-mcp-cleanup-health.timer "
-        "sitehits-archive-maintenance.timer "
+        "systemctl restart sitehits-mcp-cleanup.timer "
+        "sitehits-mcp-cleanup-health.timer sitehits-archive-maintenance.timer "
         "sitehits-historical-cache.timer"
     )
 
 
-def verify_deployment(connection: Connection) -> None:
-    app_run(
-        connection,
-        f'test "$(git rev-parse HEAD)" = {quote(RELEASE_GIT_COMMIT)}',
-    )
+def verify_native_services(connection: Connection) -> None:
     connection.sudo(
-        "systemctl is-active --quiet sitehits-web.service sitehits-mcp.service "
+        "systemctl is-active --quiet app@sitehits.socket sitehits-mcp.service "
         "sitehits-mcp-cleanup.timer sitehits-mcp-cleanup-health.timer "
         "sitehits-archive-maintenance.timer sitehits-historical-cache.timer"
     )
-    health = connection.run(
-        f"curl --fail --silent --show-error https://{quote(DOMAIN)}/health/",
-        hide=True,
-    ).stdout
-    if json.loads(health) != {"status": "ok"}:
-        raise RuntimeError("The public health endpoint returned an unexpected response.")
-    manifest = json.loads(
-        connection.run(
-            f"curl --fail --silent --show-error https://{quote(DOMAIN)}/agent-manifest.json",
-            hide=True,
-        ).stdout
-    )
-    if (
-        manifest.get("server_version") != "0.3.0"
-        or manifest.get("agent_contract_version") != "2.0.0"
-    ):
-        raise RuntimeError("The public agent manifest does not match the deployed release.")
-    mcp_status = connection.run(
-        f"curl --silent --show-error --output /dev/null --write-out '%{{http_code}}' "
-        f"https://{quote(DOMAIN)}/mcp",
+    status = connection.run(
+        "curl --silent --show-error --output /dev/null --write-out '%{http_code}' "
+        "-H 'Host: sitehits.io' http://127.0.0.1:8001/mcp",
         hide=True,
     ).stdout.strip()
-    if mcp_status != "401":
-        raise RuntimeError("The public MCP resource did not return its OAuth challenge.")
+    if status != "401":
+        raise RuntimeError("The native MCP process did not return its OAuth challenge.")
 
 
 def ensure_geoip_database(connection: Connection) -> None:
@@ -370,11 +317,7 @@ def ensure_geoip_database(connection: Connection) -> None:
 
 @task
 def deploy(_context):
-    """Deploy one immutable SiteHits source commit to hetzner-stage."""
-    if not re.fullmatch(r"[0-9a-f]{40}", RELEASE_GIT_COMMIT):
-        raise RuntimeError(
-            "SITEHITS_MCP_GIT_COMMIT must be the release's full lowercase commit SHA."
-        )
+    """Deploy SiteHits from GitHub to hetzner-stage."""
     connection = Connection(
         host=DEPLOY_HOST,
         user=DEPLOY_USER,
@@ -386,10 +329,10 @@ def deploy(_context):
     connection.run(f"mkdir -p {quote(PROJECT_DIR)}")
     connection.run(f"chown {quote(APP_USER)}:{quote(APP_USER)} {quote(PROJECT_DIR)}")
 
-    previous_commit = ""
     if connection.run(f"test -d {quote(PROJECT_DIR + '/.git')}", warn=True, hide=True).ok:
-        previous_commit = app_run(connection, "git rev-parse HEAD").stdout.strip()
-        app_run(connection, "git fetch origin --tags --prune")
+        app_run(connection, "git fetch origin main --prune")
+        app_run(connection, "git checkout main")
+        app_run(connection, "git reset --hard origin/main")
     else:
         is_empty = connection.run(
             f'test -z "$(find {quote(PROJECT_DIR)} -mindepth 1 -maxdepth 1 -print -quit)"',
@@ -402,25 +345,32 @@ def deploy(_context):
             f"git clone {quote(REPO_URL)} {quote(PROJECT_DIR)}",
             user=APP_USER,
         )
-        app_run(connection, "git fetch origin --tags --prune")
-
-    commit_object = quote(f"{RELEASE_GIT_COMMIT}^{{commit}}")
-    app_run(connection, f"git cat-file -e {commit_object}")
-    app_run(connection, f"git checkout --detach {quote(RELEASE_GIT_COMMIT)}")
-    app_run(
-        connection,
-        f'test "$(git rev-parse HEAD)" = {quote(RELEASE_GIT_COMMIT)}',
-    )
 
     ensure_geoip_database(connection)
     ensure_runtime_env(connection)
-    if previous_commit and previous_commit != RELEASE_GIT_COMMIT:
-        snapshot_release_state(connection, previous_commit)
     sync_runtime_env(connection)
-    backup_database(connection)
 
-    install_stage1_topology(connection)
-    verify_deployment(connection)
+    if connection.run(f"test -x {quote(VENV_DIR + '/bin/python')}", warn=True, hide=True).failed:
+        app_run(connection, f"python3 -m venv {quote(VENV_DIR)}")
+
+    app_run(connection, f"{quote(VENV_DIR + '/bin/pip')} install --upgrade pip")
+    app_run(connection, f"{quote(VENV_DIR + '/bin/pip')} install -r requirements.txt")
+    install_duckdb_extensions(connection)
+    app_run(connection, "npm ci")
+    app_run(connection, "npm run build")
+    app_run(connection, f"{quote(VENV_DIR + '/bin/python')} manage.py collectstatic --noinput")
+    deployed_commit = app_run(connection, "git rev-parse HEAD").stdout.strip()
+    backup_database(connection, deployed_commit)
+    app_run(connection, f"{quote(VENV_DIR + '/bin/python')} manage.py migrate --noinput")
+    app_run(connection, f"{quote(VENV_DIR + '/bin/python')} manage.py check --deploy")
+
+    connection.sudo(
+        f"systemctl reset-failed app@{PROJECT_NAME}.service app@{PROJECT_NAME}.socket",
+        warn=True,
+    )
+    connection.sudo(f"systemctl restart app@{PROJECT_NAME}.socket", warn=True)
+    install_native_services(connection)
+    verify_native_services(connection)
 
 
 ns = Collection(deploy)

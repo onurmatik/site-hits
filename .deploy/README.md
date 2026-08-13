@@ -1,36 +1,29 @@
 # SiteHits deployment
 
-From this directory, deploy the exact release commit with:
+From this directory, deploy the current `main` branch with:
 
 ```bash
-export SITEHITS_MCP_GIT_COMMIT=<full-lowercase-40-character-release-sha>
 python3 -m fabric deploy
 ```
 
-The task refuses a branch name or abbreviated SHA. The checkout containing the
-systemd/Nginx/config artifacts is detached at that exact commit, while the web
-and MCP processes run the matching immutable GHCR image digest.
-
-Before migrations, deployment stores the previous commit/image identity in the
-root-readable `.previous-release` file and creates a custom-format PostgreSQL
-backup at `/srv/backups/sitehits/predeploy-<commit>.dump`. Deployment verifies
-the exact checkout, web/MCP services, scheduled jobs, public health endpoint,
-agent manifest versions, and unauthenticated MCP OAuth challenge before it
-returns success.
+The Fabric task uses the existing native production topology. It updates the
+checkout to `origin/main`, installs Python dependencies into
+`/srv/apps/sitehits/venv`, builds frontend assets, applies migrations, collects
+static files, runs Django's deployment checks, and refreshes
+`app@sitehits.socket`. The dedicated MCP process and scheduled jobs run from the
+same checkout and virtualenv through native systemd units. Docker and an image
+registry are not part of this flow.
 
 The first deployment creates `/srv/apps/sitehits/.env` with private runtime
-secrets. Later deployments preserve that file, rebuild frontend assets, apply
-database migrations, and collect static files. Stage 1 requires separate web
-and MCP processes: `config.asgi:application` listens on loopback port 8000 and
-`mcp_gateway.mcp_asgi:application` listens on loopback port 8001. The public
-reverse proxy routes only `/mcp` to the latter.
+secrets. Later deployments preserve that file. The ignored local `.env-prod`
+holds production-only settings; Fabric merges only supported, non-empty values
+and keeps the remote file at mode `0600`.
 
-The ignored local `.env-prod` holds production-only secrets. The Fabric task
-merges its supported non-empty values into the preserved
-`/srv/apps/sitehits/.env` with mode `0600` on every deploy. It never replaces
-unrelated runtime settings. The runtime env must include:
+The runtime env must include the production database and application settings,
+plus any enabled integrations:
 
 ```text
+DATABASE_URL=postgresql://sitehits:<password>@127.0.0.1:5432/sitehits
 OPENAI_API_KEY=...
 AWS_SES_ACCESS_KEY_ID=...
 AWS_SES_SECRET_ACCESS_KEY=...
@@ -38,29 +31,32 @@ AWS_SES_REGION_NAME=...
 DEFAULT_FROM_EMAIL=SiteHits <hello@sitehits.io>
 GOOGLE_OAUTH_CLIENT_ID=...
 GOOGLE_OAUTH_CLIENT_SECRET=...
-SITEHITS_TRUSTED_PROXY_IPS=127.0.0.1,::1
-SITEHITS_MCP_CORS_ORIGINS=https://chatgpt.com,https://codex.openai.com
-SITEHITS_MCP_IMAGE_REF=ghcr.io/onurmatik/site-hits@sha256:<release-digest>
-DATABASE_URL=postgresql://sitehits:<password>@127.0.0.1:5432/sitehits
-SITEHITS_MCP_ALERT_WEBHOOK_URL=https://<monitoring-receiver>/sitehits-mcp
 ```
-
-The checked-in systemd units refuse mutable image tags and start both processes
-from this exact GHCR digest. Uvicorn must receive the same direct-peer list through
-`--forwarded-allow-ips`; wildcard proxy trust is forbidden. Install the checked-in
-`deploy/systemd/sitehits-web.service`, `deploy/systemd/sitehits-mcp.service`,
-cleanup timer, and Nginx location include as one topology change.
-The same deployment installs and enables the daily analytics archive maintenance
-timer and hourly historical-cache refresh timer.
-`DATABASE_URL` must resolve to the provisioned PostgreSQL 17 instance; the
-Stage 1 acceptance workflow rejects SQLite as concurrency evidence.
-Onur owns the Stage 1 cleanup alert. The hourly health timer and cleanup unit
-both trigger the external HTTPS webhook through `sitehits-mcp-alert@.service`.
 
 `OPENAI_API_KEY` enables the AI-assisted Product metrics Describe → Review
 flow. Optional `SITEHITS_GOAL_PLANNING_MODEL`,
 `SITEHITS_GOAL_PLANNING_TIMEOUT_SECONDS`, and
 `SITEHITS_GOAL_PLANNING_RATE_LIMIT` values are merged by the same task.
+
+Historical analytics are also native. Deployment pre-installs DuckDB's
+`httpfs` and `postgres` extensions for the application user, then installs and
+enables these systemd timers:
+
+- `sitehits-archive-maintenance.timer` (daily)
+- `sitehits-historical-cache.timer` (hourly)
+
+Deployment also installs the native `sitehits-mcp.service`, OAuth cleanup and
+health timers, and the checked-in nginx `/mcp` routing include. Missing units or
+routes are created idempotently by the same Fabric entrypoint; they are not
+manual prerequisites. Before migrations, a custom-format PostgreSQL backup is
+written under `/srv/backups/sitehits/`.
+
+Production archive settings live in the ignored `.env-prod` file. Start the
+archive rollout in shadow mode by setting
+`SITEHITS_ARCHIVE_ENABLED=true` while keeping
+`SITEHITS_ARCHIVE_QUERY_ENABLED=false` and
+`SITEHITS_ARCHIVE_DELETE_SOURCE=false`. Configure the bucket, prefix, region,
+KMS key, retention values, and the host's AWS credential chain in `.env-prod`.
 
 The SES region must be the region where the `sitehits.io` identity is verified.
 The Google OAuth web client must authorize this exact redirect URI:
@@ -70,8 +66,8 @@ https://sitehits.io/accounts/google/login/callback/
 ```
 
 Country, region, and city analytics use the MaxMind GeoLite2 City database.
-Create a MaxMind license key and add these deployment-only values to the
-ignored local `.env-prod` file:
+Create a MaxMind license key and add these deployment-only values to the ignored
+local `.env-prod` file:
 
 ```text
 MAXMIND_ACCOUNT_ID=...
@@ -81,5 +77,4 @@ MAXMIND_LICENSE_KEY=...
 The deploy task installs `geoipupdate`, writes its root-only configuration,
 downloads `/var/lib/GeoIP/GeoLite2-City.mmdb`, enables the packaged periodic
 update timer, and sets `SITEHITS_GEOIP_DB_PATH` in the preserved runtime env.
-Deployment stops if the database cannot be downloaded or read, so location
-analytics cannot silently fall back to `Unknown` in production.
+Deployment stops if the database cannot be downloaded or read.

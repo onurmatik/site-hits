@@ -16,11 +16,11 @@
       "immutable_ref_pattern": "sitehits-mcp-v{server_version}",
       "descriptor_path": "release/mcp-release.json",
       "descriptor_schema_path": "release/mcp-release.schema.json",
-      "runtime_artifact_store": "ghcr_oci_digest",
-      "runtime_artifact_ref_pattern": "ghcr.io/onurmatik/site-hits@{image_digest}",
+      "runtime_artifact_store": "exact_native_git_checkout",
+      "runtime_artifact_ref_pattern": "git_commit:{git_commit}",
       "acceptance_evidence_store": "github_release_asset",
       "digest_algorithm": "sha256",
-      "consumer_resolution": "Resolve the MCP descriptor from the immutable GitHub Release, verify its digest, pinned Agent Contract descriptor and Contract digests, GHCR image digest, canonical registry digest, client compatibility matrix digest, and immutable ChatGPT-plus-Codex-plus-Claude-plus-Claude-Code CIMD-and-DCR smoke evidence before promotion."
+      "consumer_resolution": "Resolve the MCP descriptor from the immutable GitHub Release; verify its digest, pinned Agent Contract descriptor and Contract digests, exact Git commit, source-tree digest, dependency-lock digest, checked-in native deploy-contract digest, canonical registry digest, client compatibility matrix digest, and immutable ChatGPT-plus-Codex-plus-Claude-plus-Claude-Code CIMD-and-DCR smoke evidence before promotion."
     },
     "standalone_skill": {
       "authoritative_store": "github_release_asset",
@@ -38,8 +38,7 @@
     }
   },
   "promotion_environments": [
-    {"name": "development", "promotes_to": "staging", "requires": ["stage_specific_conformance"]},
-    {"name": "staging", "promotes_to": "production", "requires": ["immutable_descriptor", "digest_verification", "stage_specific_conformance"]},
-    {"name": "production", "promotes_to": null, "requires": ["immutable_descriptor", "digest_verification", "release_approval"]}
+    {"name": "local", "promotes_to": "production", "requires": ["stage_specific_conformance", "native_deploy_contract", "digest_verification"]},
+    {"name": "production", "promotes_to": null, "requires": ["database_backup", "previous_native_release", "immutable_descriptor", "digest_verification", "release_approval"]}
   ]
 }

@@ -48,17 +48,17 @@ def test_deploy_contract_provisions_and_syncs_mcp_oauth_configuration():
     assert "printf 'SITEHITS_MCP_TOKEN_SECRET=%s" in contract
     assert '"SITEHITS_MCP_TOKEN_SECRET"' in contract
     assert '"SITEHITS_MCP_RESOURCE_URL"' in contract
-    assert '"SITEHITS_MCP_IMAGE_REF"' in contract
+    assert '"SITEHITS_MCP_IMAGE_REF"' not in contract
     assert '"DATABASE_URL"' in contract
     assert '"SITEHITS_TRUSTED_PROXY_IPS"' in contract
     assert "SITEHITS_MCP_ALLOW_LEGACY_TOKENS" not in contract
 
 
-def test_deploy_contract_checks_out_the_exact_release_commit():
+def test_deploy_contract_updates_the_native_main_checkout():
     contract = FABFILE_PATH.read_text()
 
-    assert 'os.environ.get("SITEHITS_MCP_GIT_COMMIT", "")' in contract
-    assert "git checkout --detach" in contract
-    assert "git cat-file -e" in contract
-    assert "git reset --hard origin/main" not in contract
-    assert "git checkout main" not in contract
+    assert 'os.environ.get("SITEHITS_MCP_GIT_COMMIT", "")' not in contract
+    assert "git fetch origin main --prune" in contract
+    assert "git checkout main" in contract
+    assert "git reset --hard origin/main" in contract
+    assert "git checkout --detach" not in contract
