@@ -5,9 +5,9 @@
   "status": "accepted",
   "date": "2026-08-12",
   "owner": "Onur",
-  "agent_contract_version": "1.0.0",
+  "agent_contract_version": "2.0.0",
   "title": "Operate and release SiteHits MCP and OAuth v1",
-  "context": "Agent Contract 1.0.0 is the pinned semantic source. SiteHits has no external MCP consumer, so Stage 1 can replace provisional endpoints and legacy bearer behavior without a compatibility window.",
+  "context": "Agent Contract 2.0.0 is the pinned semantic source. SiteHits has no released external MCP consumer, so Stage 1 can replace provisional endpoints and proprietary legacy bearer behavior without a compatibility window while retaining the standards-based MCP handshake adapter required by client acceptance.",
   "decisions": [
     {
       "id": "public-identity",
@@ -34,6 +34,10 @@
       "decision": "Production uses PostgreSQL 17. The dedicated MCP entrypoint shares the product account model, database, settings, and service layer. How that entrypoint is activated is owned by a separate deployment task; this implementation does not change the existing Fabric, process-manager or reverse-proxy contract."
     },
     {
+      "id": "protocol-compatibility",
+      "decision": "The canonical MCP transport is stateless Streamable HTTP revision 2026-07-28: every request carries the protocol envelope and matching MCP-Protocol-Version plus Mcp-Method routing headers, name-bearing calls also carry Mcp-Name, and server/discover replaces the initialize handshake. The pinned MCP SDK's legacy handshake adapter retains its supported 2024-11-05 through 2025-11-25 revisions for required clients that have not yet demonstrated 2026-07-28 support. The repository-maintainer owns sunset. Removal requires immutable modern-protocol acceptance from every required client record in integration/client-compatibility.yaml; pending or legacy evidence blocks removal, so support is never removed by assumption."
+    },
+    {
       "id": "persistent-operations",
       "decision": "Registration and OAuth abuse limits are database-backed; local-memory rate limiting is forbidden. Credential and stale-client cleanup is exposed as an idempotent, bounded management command with observable results. Scheduling and alert routing are deployment/operations handoff items."
     },
@@ -47,14 +51,14 @@
     },
     {
       "id": "clean-cut-rollout",
-      "decision": "There are no external consumers and no legacy compatibility window. The release removes provisional endpoints and legacy token behavior. Any later deployment rollback must preserve revoked tokens and consumed codes, but the rollback mechanism remains outside this implementation."
+      "decision": "There are no released external consumers and no legacy compatibility window for provisional endpoints or proprietary token behavior. Standards-based MCP handshake compatibility remains available until required-client evidence supports removal. Any later deployment rollback must preserve revoked tokens and consumed codes, but the rollback mechanism remains outside this implementation."
     }
   ],
   "migration_plan": [
     "Record the pinned Agent Contract descriptor digest.",
     "Keep OAuth, audit, rate-limit, cleanup-index, and constraint migrations additive and compatible with the existing deployment process.",
     "Run code-exchange, refresh-family, revoke, quota, and cleanup concurrency suites against PostgreSQL 17 rather than SQLite.",
-    "Run local conformance and produce a secretsiz deployment handoff listing the MCP entrypoint, routes, environment keys, migrations, cleanup command, and smoke sequence.",
+    "Run local conformance and produce a secrets-free deployment handoff listing the MCP entrypoint, routes, environment keys, migrations, cleanup command, and smoke sequence.",
     "After a separate deployment task, execute ChatGPT, Codex, Claude/Claude Desktop, and Claude Code acceptance over CIMD plus separately evidenced DCR fallback, then run Inspector diagnostics.",
     "Seal release/mcp-release.json only after exact source, dependency lock, registry, smoke, audit, refresh, revoke, and cleanup evidence exists."
   ],

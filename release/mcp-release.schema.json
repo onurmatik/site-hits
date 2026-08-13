@@ -66,6 +66,8 @@
           "tier",
           "tested_version",
           "transport",
+          "protocol_version",
+          "discovery_mode",
           "registration_method",
           "fallback_registration_method",
           "fallback_status",
@@ -83,6 +85,16 @@
           "tier": {"enum": ["primary", "cross-agent", "diagnostic"]},
           "tested_version": {"type": "string", "minLength": 1},
           "transport": {"const": "streamable-http"},
+          "protocol_version": {
+            "enum": [
+              "2024-11-05",
+              "2025-03-26",
+              "2025-06-18",
+              "2025-11-25",
+              "2026-07-28"
+            ]
+          },
+          "discovery_mode": {"enum": ["initialize", "server/discover"]},
           "registration_method": {"const": "cimd"},
           "fallback_registration_method": {"const": "dcr"},
           "fallback_status": {"enum": ["passed", "diagnostic-passed"]},

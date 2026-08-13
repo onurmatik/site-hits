@@ -40,7 +40,7 @@ def check_stage1_database(app_configs, **kwargs):
     return _stage1_database_errors(connections["default"])
 
 
-@register(Tags.security, deploy=True)
+@register(Tags.security, "mcp_oauth", deploy=True)
 def check_mcp_oauth_secrets(app_configs, **kwargs):
     errors = []
     if (

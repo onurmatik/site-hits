@@ -16,6 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
+
 from agent_contract_identity import (
     PINNED_AGENT_CONTRACT_DESCRIPTOR_SHA256,
     PINNED_AGENT_CONTRACT_SHA256,
@@ -41,6 +43,10 @@ REQUIRED_ACCEPTANCE_CLIENTS = (
     "Claude Code",
 )
 REQUIRED_DIAGNOSTIC_CLIENTS = ("MCP Inspector",)
+SUPPORTED_MCP_PROTOCOL_VERSIONS = (
+    *HANDSHAKE_PROTOCOL_VERSIONS,
+    *MODERN_PROTOCOL_VERSIONS,
+)
 REQUIRED_SMOKE_FLOWS = {
     "discovery",
     "oauth",
@@ -281,6 +287,8 @@ def _validate_smoke_evidence(
     records_by_name = {record["display_name"]: record for record in client_records}
     evidence_record_keys = {
         "tested_version",
+        "protocol_version",
+        "discovery_mode",
         "registration_method",
         "registration_status",
         "fallback_registration_method",
@@ -292,9 +300,17 @@ def _validate_smoke_evidence(
         matrix_record = records_by_name[name]
         diagnostic = matrix_record["release_acceptance"] == "diagnostic"
         expected_status = "diagnostic-passed" if diagnostic else "passed"
+        protocol_version = client_evidence["protocol_version"]
+        expected_discovery_mode = (
+            "server/discover"
+            if protocol_version in MODERN_PROTOCOL_VERSIONS
+            else "initialize"
+        )
         if (
             not isinstance(client_evidence["tested_version"], str)
             or not client_evidence["tested_version"].strip()
+            or protocol_version not in SUPPORTED_MCP_PROTOCOL_VERSIONS
+            or client_evidence["discovery_mode"] != expected_discovery_mode
             or client_evidence["registration_method"] != matrix_record["registration_method"]
             or client_evidence["registration_status"] != expected_status
             or client_evidence["fallback_registration_method"]
@@ -302,7 +318,8 @@ def _validate_smoke_evidence(
             or client_evidence["fallback_status"] != expected_status
         ):
             raise ValueError(
-                f"Smoke client {name} must pass exact CIMD and DCR fallback acceptance"
+                f"Smoke client {name} must bind an exact MCP protocol/discovery profile "
+                "and pass CIMD plus DCR fallback acceptance"
             )
     flows = evidence["flows"]
     if (
@@ -352,6 +369,8 @@ def _validate_smoke_evidence(
             "tier": record["tier"],
             "tested_version": all_evidence[record["display_name"]]["tested_version"],
             "transport": record["transport"],
+            "protocol_version": all_evidence[record["display_name"]]["protocol_version"],
+            "discovery_mode": all_evidence[record["display_name"]]["discovery_mode"],
             "registration_method": record["registration_method"],
             "fallback_registration_method": record["fallback_registration_method"],
             "fallback_status": all_evidence[record["display_name"]]["fallback_status"],

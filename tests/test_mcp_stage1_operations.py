@@ -14,6 +14,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.utils import timezone
+from jsonschema import Draft202012Validator
 
 from mcp_gateway import release
 from mcp_gateway.checks import _stage1_database_errors
@@ -59,6 +60,8 @@ def _smoke_evidence(contract, *, commit, source_tree_sha256):
         status = "diagnostic-passed" if diagnostic else "passed"
         return {
             "tested_version": version,
+            "protocol_version": "2026-07-28",
+            "discovery_mode": "server/discover",
             "registration_method": "cimd",
             "registration_status": status,
             "fallback_registration_method": "dcr",
@@ -111,6 +114,11 @@ def test_released_contract_descriptor_can_seal_the_mcp_candidate(tmp_path):
     assert descriptor["agent_contract"]["agent_contract_version"] == "2.0.0"
     assert descriptor["source_tree_sha256"] == source_tree_sha256
     assert descriptor["dependency_lock_sha256"] == release.dependency_lock_digest()
+    assert {
+        (record["protocol_version"], record["discovery_mode"])
+        for record in descriptor["client_acceptance"]
+    } == {("2026-07-28", "server/discover")}
+    Draft202012Validator(_load(MCP_RELEASE_SCHEMA_PATH)).validate(descriptor)
 
 
 def test_pinned_runtime_dependencies_and_shared_adapter_public_seam():
@@ -242,6 +250,19 @@ def test_release_sealing_rejects_incomplete_or_mismatched_evidence(tmp_path, mon
         )
 
     evidence = _smoke_evidence(contract, commit=commit, source_tree_sha256=source_tree_sha256)
+    evidence["clients"]["Codex"]["discovery_mode"] = "initialize"
+    evidence_path.write_text(json.dumps(evidence))
+    with pytest.raises(ValueError, match="exact MCP protocol/discovery profile"):
+        release.build_descriptor(
+            server_version="0.3.0",
+            contract_path=CONTRACT_PATH,
+            contract_descriptor_path=candidate_descriptor_path,
+            git_commit=commit,
+            source_tree_sha256=source_tree_sha256,
+            smoke_evidence_path=evidence_path,
+        )
+
+    evidence = _smoke_evidence(contract, commit=commit, source_tree_sha256=source_tree_sha256)
     evidence["tool_registry_sha256"] = f"sha256:{'c' * 64}"
     evidence_path.write_text(json.dumps(evidence))
     with pytest.raises(ValueError, match="tool_registry_sha256"):
@@ -357,6 +378,7 @@ def test_stage1_sources_adr_and_runbook_capture_resolved_operations():
     adr = _load(ADR_PATH)
     assert adr["status"] == "accepted"
     assert adr["owner"] == "Onur"
+    assert adr["agent_contract_version"] == "2.0.0"
     serialized = json.dumps(adr)
     for required in (
         "https://sitehits.io/mcp",
@@ -376,6 +398,8 @@ def test_stage1_sources_adr_and_runbook_capture_resolved_operations():
         "90 days",
         "30 days",
         "no legacy compatibility window",
+        "server/discover",
+        "2026-07-28",
     ):
         assert required in serialized
 
@@ -419,6 +443,9 @@ def test_stage1_ci_runs_full_postgres_suite_and_history_secret_scan():
     assert "show server_version_num" in workflow
     assert 'show server_version_num\')" = "170010"' in workflow
     assert "manage.py check --deploy --tag database" in workflow
+    assert "--tag mcp_oauth --fail-level ERROR" in workflow
+    assert 'DJANGO_DEBUG: "false"' in workflow
+    assert 'SITEHITS_MCP_ISSUER_URL: https://sitehits.io' in workflow
     assert "fetch-depth: 0" in workflow
     assert "run: uv run pytest -q" in workflow
     assert ("gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e") in workflow

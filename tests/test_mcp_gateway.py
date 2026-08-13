@@ -10,6 +10,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from mcp.types import LATEST_PROTOCOL_VERSION
+from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS
 from starlette.testclient import TestClient
 
 from agent_runtime.revisions import revision_for
@@ -35,6 +36,15 @@ ALLOWED_ORIGIN = settings.SITEHITS_MCP_CORS_ORIGINS[0]
 MCP_HEADERS = {
     "Accept": "application/json, text/event-stream",
     "Content-Type": "application/json",
+}
+MODERN_PROTOCOL_VERSION = "2026-07-28"
+MODERN_META = {
+    "io.modelcontextprotocol/protocolVersion": MODERN_PROTOCOL_VERSION,
+    "io.modelcontextprotocol/clientCapabilities": {},
+    "io.modelcontextprotocol/clientInfo": {
+        "name": "sitehits-modern-tests",
+        "version": "1.0.0",
+    },
 }
 
 
@@ -140,6 +150,34 @@ def _initialize(client, token):
     )
 
 
+def _modern_post(
+    client,
+    method: str,
+    *,
+    token: str,
+    params: dict | None = None,
+    name: str | None = None,
+):
+    headers = {
+        **MCP_HEADERS,
+        "Authorization": f"Bearer {token}",
+        "MCP-Protocol-Version": MODERN_PROTOCOL_VERSION,
+        "Mcp-Method": method,
+    }
+    if name is not None:
+        headers["Mcp-Name"] = name
+    return client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": f"modern-{method}",
+            "method": method,
+            "params": {**(params or {}), "_meta": dict(MODERN_META)},
+        },
+        headers=headers,
+    )
+
+
 def test_mcp_cors_preflight_runs_before_authentication_and_uses_allowlist(mcp_client):
     allowed = mcp_client.options(
         "/mcp",
@@ -147,7 +185,7 @@ def test_mcp_cors_preflight_runs_before_authentication_and_uses_allowlist(mcp_cl
             "Origin": ALLOWED_ORIGIN,
             "Access-Control-Request-Method": "POST",
             "Access-Control-Request-Headers": (
-                "authorization,content-type,mcp-protocol-version"
+                "authorization,content-type,mcp-protocol-version,mcp-method,mcp-name"
             ),
         },
     )
@@ -157,6 +195,8 @@ def test_mcp_cors_preflight_runs_before_authentication_and_uses_allowlist(mcp_cl
     assert "authorization" in allowed_headers
     assert "content-type" in allowed_headers
     assert "mcp-protocol-version" in allowed_headers
+    assert "mcp-method" in allowed_headers
+    assert "mcp-name" in allowed_headers
     exposed = allowed.headers["access-control-expose-headers"].lower()
     assert "www-authenticate" in exposed
     assert "mcp-session-id" in exposed
@@ -333,6 +373,133 @@ def test_sdk_v2_initialize_and_tools_list_are_contract_exact(mcp_client, mcp_use
     assert bootstrap_result["isError"] is False
     assert "capabilities" in bootstrap_result["structuredContent"]
     assert "limits" in bootstrap_result["structuredContent"]
+
+
+@pytest.mark.parametrize("protocol_version", HANDSHAKE_PROTOCOL_VERSIONS)
+def test_legacy_handshake_revisions_share_the_contract_registry(
+    mcp_client,
+    mcp_user,
+    protocol_version,
+):
+    _, raw = _access_token(mcp_user, scopes=("read", "write"))
+    initialized = _post(
+        mcp_client,
+        {
+            "jsonrpc": "2.0",
+            "id": f"initialize-{protocol_version}",
+            "method": "initialize",
+            "params": {
+                "protocolVersion": protocol_version,
+                "capabilities": {},
+                "clientInfo": {"name": "legacy-revision-tests", "version": "1.0.0"},
+            },
+        },
+        token=raw,
+    )
+    assert initialized.status_code == 200, initialized.text
+    assert initialized.json()["result"]["protocolVersion"] == protocol_version
+
+    listed = mcp_client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": 3, "method": "tools/list"},
+        headers={
+            **MCP_HEADERS,
+            "Authorization": f"Bearer {raw}",
+            "MCP-Protocol-Version": protocol_version,
+        },
+    )
+    assert listed.status_code == 200, listed.text
+    published = {tool["name"]: tool for tool in listed.json()["result"]["tools"]}
+    expected_entries = {
+        entry.name: entry for entry in TOOL_REGISTRY if entry.exposure == "public"
+    }
+    assert set(published) == set(expected_entries)
+    for name, entry in expected_entries.items():
+        expected = entry.to_mcp_tool().model_dump(
+            mode="json",
+            by_alias=True,
+            exclude_none=True,
+        )
+        assert published[name] == expected
+
+
+def test_modern_mcp_is_stateless_and_contract_exact(mcp_client, mcp_user):
+    _, raw = _access_token(mcp_user, scopes=("read", "write"))
+
+    discovered = _modern_post(
+        mcp_client,
+        "server/discover",
+        token=raw,
+    )
+    assert discovered.status_code == 200, discovered.text
+    assert "mcp-session-id" not in discovered.headers
+    discovery = discovered.json()["result"]
+    assert discovery["supportedVersions"] == [MODERN_PROTOCOL_VERSION]
+    assert discovery["instructions"] == CONTRACT_SERVER_INSTRUCTIONS
+    assert discovery["resultType"] == "complete"
+    assert discovery["_meta"]["io.modelcontextprotocol/serverInfo"] == {
+        "name": "sitehits",
+        "title": "SiteHits analytics MCP",
+        "version": SERVER_VERSION,
+        "description": AGENT_CONTRACT["server_instructions"]["summary"],
+        "websiteUrl": settings.SITEHITS_BASE_URL,
+    }
+
+    listed = _modern_post(mcp_client, "tools/list", token=raw)
+    assert listed.status_code == 200, listed.text
+    assert "mcp-session-id" not in listed.headers
+    result = listed.json()["result"]
+    assert result["resultType"] == "complete"
+    assert {tool["name"] for tool in result["tools"]} == {
+        entry.name for entry in TOOL_REGISTRY if entry.exposure == "public"
+    }
+    assert result["_meta"]["io.modelcontextprotocol/serverInfo"]["version"] == (
+        SERVER_VERSION
+    )
+
+    bootstrap_name = AGENT_CONTRACT["bootstrap"]["tool"]
+    bootstrap = _modern_post(
+        mcp_client,
+        "tools/call",
+        token=raw,
+        name=bootstrap_name,
+        params={"name": bootstrap_name, "arguments": {}},
+    )
+    assert bootstrap.status_code == 200, bootstrap.text
+    bootstrap_result = bootstrap.json()["result"]
+    assert bootstrap_result["isError"] is False
+    assert "capabilities" in bootstrap_result["structuredContent"]
+    assert bootstrap_result["resultType"] == "complete"
+
+
+def test_modern_mcp_rejects_missing_routing_headers(mcp_client, mcp_user):
+    _, raw = _access_token(mcp_user)
+    response = mcp_client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": "modern-missing-method-header",
+            "method": "tools/list",
+            "params": {"_meta": dict(MODERN_META)},
+        },
+        headers={
+            **MCP_HEADERS,
+            "Authorization": f"Bearer {raw}",
+            "MCP-Protocol-Version": MODERN_PROTOCOL_VERSION,
+        },
+    )
+    assert response.status_code == 400
+    assert "mcp-method header does not match" in response.json()["error"]["message"]
+
+    bootstrap_name = AGENT_CONTRACT["bootstrap"]["tool"]
+    missing_name = _modern_post(
+        mcp_client,
+        "tools/call",
+        token=raw,
+        params={"name": bootstrap_name, "arguments": {}},
+    )
+    assert missing_name.status_code == 400
+    assert "mcp-name header does not match" in missing_name.json()["error"]["message"]
 
 
 def test_established_call_scope_step_up_uses_mcp_meta_challenge(

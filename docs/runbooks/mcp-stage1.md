@@ -11,6 +11,10 @@ deployment contract.
 - Default loopback bind: `127.0.0.1:8001`.
 - Canonical issuer: `https://sitehits.io`.
 - Canonical resource: `https://sitehits.io/mcp`.
+- Canonical protocol: stateless Streamable HTTP `2026-07-28` with
+  `server/discover` and per-request protocol metadata.
+- Compatibility protocol: the SDK's legacy Streamable HTTP handshake adapter
+  remains enabled until live required-client evidence supports its removal.
 - Database: PostgreSQL 17 for accepted concurrency semantics.
 - Required configuration is documented in `.env.example`; credentials must use
   the deployment process's existing secrets mechanism.
@@ -58,6 +62,13 @@ implementation.
 4. Run client-native discovery, `tools/list`, and the read-only bootstrap tool
    with ChatGPT, Codex, Claude/Claude Desktop and Claude Code.
 5. Verify audit records contain no raw credential material.
+
+For modern clients, acceptance must show that requests carry matching
+`MCP-Protocol-Version`, `Mcp-Method`, and, for name-bearing calls, `Mcp-Name`
+headers without creating an `Mcp-Session-Id`. Record the exact client build and
+whether it used modern discovery or the legacy handshake adapter in the
+immutable smoke evidence; do not infer protocol support from a generic HTTP
+success.
 
 Do not commit `release/mcp-release.json` as a mutable placeholder. Seal it only
 after the separately deployed candidate has immutable real-client evidence.

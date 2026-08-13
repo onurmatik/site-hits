@@ -293,6 +293,8 @@ class MCPPathCORSMiddleware:
                 "Content-Type",
                 "MCP-Protocol-Version",
                 "MCP-Session-Id",
+                "Mcp-Method",
+                "Mcp-Name",
                 "X-Request-ID",
             ],
             expose_headers=["WWW-Authenticate", "MCP-Session-Id", "X-Request-ID"],
