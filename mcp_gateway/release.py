@@ -79,45 +79,8 @@ def _digest_bytes(payload: bytes) -> str:
     return f"sha256:{hashlib.sha256(payload).hexdigest()}"
 
 
-def _framed_tree_digest(paths: list[Path]) -> str:
-    digest = hashlib.sha256()
-    files: list[Path] = []
-    for path in paths:
-        if path.is_dir():
-            files.extend(
-                candidate
-                for candidate in path.rglob("*")
-                if candidate.is_file()
-                and "__pycache__" not in candidate.parts
-                and candidate.suffix != ".pyc"
-                and candidate.name != ".credentials.env"
-            )
-        elif path.is_file():
-            files.append(path)
-    for path in sorted(set(files), key=lambda item: item.relative_to(ROOT).as_posix()):
-        relative = path.relative_to(ROOT).as_posix().encode()
-        digest.update(relative)
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-    return f"sha256:{digest.hexdigest()}"
-
-
 def dependency_lock_digest() -> str:
     return _digest_bytes((ROOT / "uv.lock").read_bytes())
-
-
-def deploy_contract_digest() -> str:
-    return _framed_tree_digest(
-        [
-            ROOT / ".deploy",
-            ROOT / "deploy" / "nginx",
-            ROOT / "deploy" / "systemd",
-            ROOT / "deploy" / "send-mcp-alert.py",
-            ROOT / "scripts" / "install_sitehits_mcp_nginx.py",
-            ROOT / "scripts" / "start.sh",
-        ]
-    )
 
 
 def canonical_json(value: object) -> str:
@@ -476,7 +439,6 @@ def build_descriptor(
         "git_commit": git_commit,
         "source_tree_sha256": source_tree_sha256,
         "dependency_lock_sha256": dependency_lock_digest(),
-        "deploy_contract_sha256": deploy_contract_digest(),
         "tool_registry_sha256": registry_digest,
         "client_compatibility_sha256": client_compatibility_digest,
         "oauth": {"issuer": ISSUER, "resource": RESOURCE},

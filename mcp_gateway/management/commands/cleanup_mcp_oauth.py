@@ -257,8 +257,8 @@ def _start_cleanup_run(*, now, batch_size, max_batches, dry_run, targets):
         status=OAuthCleanupRun.Status.RUNNING,
         started_at=now,
         details={
-            "operator": "systemd",
-            "scheduler": "sitehits-mcp-cleanup.timer",
+            "operator": "management_command",
+            "scheduler": "external_operations",
             "batch_size": batch_size,
             "max_batches": max_batches,
             "retention_days_by_type": {target.name: target.retention_days for target in targets},

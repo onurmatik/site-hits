@@ -31,11 +31,11 @@
     },
     {
       "id": "runtime-topology",
-      "decision": "Production uses PostgreSQL 17. The existing Django web socket and the dedicated MCP process run from the same exact native Git checkout and Python virtualenv, are managed by systemd behind the same-origin reverse proxy, and share the product account model, database, settings, and service layer."
+      "decision": "Production uses PostgreSQL 17. The dedicated MCP entrypoint shares the product account model, database, settings, and service layer. How that entrypoint is activated is owned by a separate deployment task; this implementation does not change the existing Fabric, process-manager or reverse-proxy contract."
     },
     {
       "id": "persistent-operations",
-      "decision": "Registration and OAuth abuse limits are database-backed; local-memory rate limiting is forbidden. Credential and stale-client cleanup runs at least daily through a systemd timer and emits bounded-job metrics suitable for alerting."
+      "decision": "Registration and OAuth abuse limits are database-backed; local-memory rate limiting is forbidden. Credential and stale-client cleanup is exposed as an idempotent, bounded management command with observable results. Scheduling and alert routing are deployment/operations handoff items."
     },
     {
       "id": "retention",
@@ -43,29 +43,29 @@
     },
     {
       "id": "immutable-release",
-      "decision": "The server runtime is the exact native Git checkout identified by full git_commit, source-tree digest, dependency-lock digest, and checked-in deploy-contract digest. The MCP descriptor and immutable ChatGPT-plus-Codex-plus-Claude-plus-Claude-Code smoke bundle are GitHub Release assets. Downstream consumers resolve these immutable identities and never depend on a container image or mutable branch."
+      "decision": "The server artifact is identified by full git_commit, source-tree digest and dependency-lock digest. The MCP descriptor and immutable ChatGPT-plus-Codex-plus-Claude-plus-Claude-Code smoke bundle are GitHub Release assets. Downstream consumers resolve these immutable identities without redefining the product's deployment contract."
     },
     {
       "id": "clean-cut-rollout",
-      "decision": "There are no external consumers and no legacy compatibility window. The production cutover removes provisional endpoints and legacy token behavior. Rollback may restore only a prior compatible exact commit, dependency lock, deploy config and descriptor and must never reactivate revoked tokens or consumed codes."
+      "decision": "There are no external consumers and no legacy compatibility window. The release removes provisional endpoints and legacy token behavior. Any later deployment rollback must preserve revoked tokens and consumed codes, but the rollback mechanism remains outside this implementation."
     }
   ],
   "migration_plan": [
-    "Take a PostgreSQL 17 backup and record the pinned Agent Contract descriptor digest.",
-    "Apply additive OAuth, audit, rate-limit, cleanup-index, and constraint migrations before routing traffic to the new MCP process.",
-    "Drain and stop every old web/MCP writer before refresh-family migrations 0002 through 0004; this clean-cut release does not claim zero-downtime migration.",
+    "Record the pinned Agent Contract descriptor digest.",
+    "Keep OAuth, audit, rate-limit, cleanup-index, and constraint migrations additive and compatible with the existing deployment process.",
     "Run code-exchange, refresh-family, revoke, quota, and cleanup concurrency suites against PostgreSQL 17 rather than SQLite.",
-    "Run local conformance first, then deploy the exact native source candidate directly to production; execute ChatGPT, Codex, Claude/Claude Desktop, and Claude Code acceptance over CIMD plus separately evidenced DCR fallback, then run Inspector diagnostics.",
-    "Seal release/mcp-release.json only after exact source, dependency lock, deploy contract, registry, smoke, audit, refresh, revoke, cleanup, and rollback evidence exists."
+    "Run local conformance and produce a secretsiz deployment handoff listing the MCP entrypoint, routes, environment keys, migrations, cleanup command, and smoke sequence.",
+    "After a separate deployment task, execute ChatGPT, Codex, Claude/Claude Desktop, and Claude Code acceptance over CIMD plus separately evidenced DCR fallback, then run Inspector diagnostics.",
+    "Seal release/mcp-release.json only after exact source, dependency lock, registry, smoke, audit, refresh, revoke, and cleanup evidence exists."
   ],
   "rollback_plan": [
-    "Keep the previous exact commit, dependency lock, configuration, deploy contract, descriptor, and database backup available until the post-deploy rollback smoke is green.",
-    "If additive schema remains backward-compatible, restore the previous native checkout/config and repeat discovery, exact-resource, OAuth, initialize, bootstrap, audit, refresh, and revoke smoke.",
-    "If schema is not backward-compatible, do not downgrade code or reverse state transitions; disable new traffic if necessary and roll forward a corrective native release.",
+    "Keep credential-state transitions backward-compatible with the previous supported server artifact.",
+    "After any separately authorized rollback, repeat discovery, exact-resource, OAuth, bootstrap, audit, refresh, and revoke smoke.",
+    "If schema is not backward-compatible, do not downgrade code or reverse state transitions; use a corrective release.",
     "A rollback must preserve revocations, consumed authorization codes, refresh-family replay decisions, audit records, and cleanup evidence."
   ],
   "consequences": [
-    "Stage 1 is not releasable from repository artifacts alone; production PostgreSQL, native deployment, real-client, GitHub Release, cleanup-health, and rollback evidence are mandatory.",
+    "The implementation gate is local/CI and leaves existing deployment files unchanged; a public release still requires separately obtained live real-client evidence.",
     "A stale or unreachable CIMD document makes that client temporarily unusable; the last good document remains stored for audit but is never silently authorized after expiry.",
     "DCR remains operational until its role-owned 90-day removal evidence is complete; CIMD-first does not authorize early fallback removal.",
     "MCP server SemVer remains independent of the Agent Contract version; no mcp_contract_version is introduced.",

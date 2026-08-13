@@ -10,7 +10,6 @@
     "git_commit",
     "source_tree_sha256",
     "dependency_lock_sha256",
-    "deploy_contract_sha256",
     "tool_registry_sha256",
     "client_compatibility_sha256",
     "oauth",
@@ -44,7 +43,6 @@
     "git_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "source_tree_sha256": {"$ref": "#/$defs/digest"},
     "dependency_lock_sha256": {"$ref": "#/$defs/digest"},
-    "deploy_contract_sha256": {"$ref": "#/$defs/digest"},
     "tool_registry_sha256": {"$ref": "#/$defs/digest"},
     "client_compatibility_sha256": {"$ref": "#/$defs/digest"},
     "oauth": {

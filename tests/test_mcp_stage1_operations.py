@@ -111,7 +111,6 @@ def test_released_contract_descriptor_can_seal_the_mcp_candidate(tmp_path):
     assert descriptor["agent_contract"]["agent_contract_version"] == "2.0.0"
     assert descriptor["source_tree_sha256"] == source_tree_sha256
     assert descriptor["dependency_lock_sha256"] == release.dependency_lock_digest()
-    assert descriptor["deploy_contract_sha256"] == release.deploy_contract_digest()
 
 
 def test_pinned_runtime_dependencies_and_shared_adapter_public_seam():
@@ -370,8 +369,6 @@ def test_stage1_sources_adr_and_runbook_capture_resolved_operations():
         "[::1]",
         "localhost",
         "PostgreSQL 17",
-        "systemd",
-        "native Git checkout",
         "GitHub Release",
         "client_id_metadata_document_supported=true",
         "repository-maintainer",
@@ -390,37 +387,7 @@ def test_stage1_sources_adr_and_runbook_capture_resolved_operations():
     assert not (ROOT / "release" / "mcp-release.json").exists()
 
 
-def test_systemd_process_boundary_and_daily_cleanup_contract():
-    mcp = (ROOT / "deploy" / "systemd" / "sitehits-mcp.service").read_text()
-    cleanup = (ROOT / "deploy" / "systemd" / "sitehits-mcp-cleanup.service").read_text()
-    timer = (ROOT / "deploy" / "systemd" / "sitehits-mcp-cleanup.timer").read_text()
-    health = (ROOT / "deploy" / "systemd" / "sitehits-mcp-cleanup-health.service").read_text()
-    health_timer = (ROOT / "deploy" / "systemd" / "sitehits-mcp-cleanup-health.timer").read_text()
-    alert = (ROOT / "deploy" / "systemd" / "sitehits-mcp-alert@.service").read_text()
-    nginx = (ROOT / "deploy" / "nginx" / "sitehits-mcp.locations.conf").read_text()
-    for unit in (mcp, cleanup, health, alert):
-        assert "/srv/apps/sitehits/venv/" in unit
-        assert "/usr/bin/docker" not in unit
-        assert "SITEHITS_MCP_IMAGE_REF" not in unit
-    assert not (ROOT / "deploy" / "systemd" / "sitehits-web.service").exists()
-    assert "ExecStart=/bin/sh /srv/apps/sitehits/scripts/start.sh mcp" in mcp
-    assert "cleanup_mcp_oauth" in cleanup
-    assert "purge_old_events" in cleanup
-    assert "OnCalendar=daily" in timer and "Persistent=true" in timer
-    assert "check_mcp_oauth_cleanup_health" in health
-    assert "OnUnitActiveSec=1h" in health_timer and "Persistent=true" in health_timer
-    assert "OnFailure=sitehits-mcp-alert@%n.service" in cleanup
-    assert "venv/bin/python /srv/apps/sitehits/deploy/send-mcp-alert.py %i" in alert
-    assert "location = /mcp" in nginx
-    assert "location ^~ /oauth/" in nginx
-    assert "location ^~ /accounts/" in nginx
-    assert "127.0.0.1:8001" in nginx
-    assert "--no-access-log" in (ROOT / "scripts" / "start.sh").read_text()
-    assert "access_log off" in nginx
-    assert "proxy_set_header X-Request-ID $request_id" in nginx
-
-
-def test_deploy_uses_native_venv_and_existing_socket_topology():
+def test_agentic_stages_preserve_the_existing_deploy_contract():
     deploy_source = (ROOT / ".deploy" / "fabfile.py").read_text()
     install_dependencies = deploy_source.index("install -r requirements.txt")
     collect_static = deploy_source.index("manage.py collectstatic --noinput")
@@ -430,43 +397,19 @@ def test_deploy_uses_native_venv_and_existing_socket_topology():
     assert "git reset --hard origin/main" in deploy_source
     assert "VENV_DIR = f\"{PROJECT_DIR}/venv\"" in deploy_source
     assert install_dependencies < collect_static < migrate < restart_socket
-    assert "command -v docker" not in deploy_source
-    assert "SITEHITS_MCP_IMAGE_REF" not in deploy_source
-    assert "sitehits-web.service" in deploy_source
-    assert "systemctl disable --now sitehits-web.service" in deploy_source
-    assert "sitehits-mcp.service" in deploy_source
     assert "app@{PROJECT_NAME}.socket" in deploy_source
-
-
-def test_deploy_installs_native_archive_jobs_and_duckdb_extensions():
-    deploy_source = (ROOT / ".deploy" / "fabfile.py").read_text()
-    archive_unit = (
-        ROOT / "deploy" / "systemd" / "sitehits-archive-maintenance.service"
-    ).read_text()
-    historical_unit = (
-        ROOT / "deploy" / "systemd" / "sitehits-historical-cache.service"
-    ).read_text()
-
-    for unit in (
-        "sitehits-archive-maintenance.service",
-        "sitehits-archive-maintenance.timer",
-        "sitehits-historical-cache.service",
-        "sitehits-historical-cache.timer",
+    for forbidden in (
+        "backup_database",
+        "install_native_services",
+        "install_duckdb_extensions",
+        "sitehits-mcp.service",
+        "systemctl reload nginx",
     ):
-        assert unit in deploy_source
-    assert "('httpfs', 'postgres')" in deploy_source
-    assert deploy_source.index("install_duckdb_extensions(connection)") < deploy_source.index(
-        "manage.py migrate --noinput"
-    )
-    assert deploy_source.index("manage.py migrate --noinput") < deploy_source.rindex(
-        "install_native_services(connection)"
-    )
-    assert (ROOT / ".deploy" / "backup_database.py").exists()
-    for unit in (archive_unit, historical_unit):
-        assert "User=ubuntu" in unit
-        assert "/srv/apps/sitehits/venv/bin/python" in unit
-        assert "/usr/bin/docker" not in unit
-        assert "SITEHITS_MCP_IMAGE_REF" not in unit
+        assert forbidden not in deploy_source
+    assert not (ROOT / ".deploy" / "backup_database.py").exists()
+    assert not (ROOT / "deploy" / "send-mcp-alert.py").exists()
+    assert not (ROOT / "deploy" / "systemd" / "sitehits-mcp.service").exists()
+    assert not (ROOT / "deploy" / "nginx" / "sitehits-mcp.locations.conf").exists()
 
 
 def test_stage1_ci_runs_full_postgres_suite_and_history_secret_scan():
@@ -505,36 +448,6 @@ def test_deploy_check_requires_the_postgresql_17_acceptance_engine():
 
     assert [error.id for error in wrong_engine] == ["mcp_gateway.E004"]
     assert [error.id for error in wrong_version] == ["mcp_gateway.E006"]
-
-
-def test_sensitive_proxy_locations_disable_uri_bearing_access_and_error_logs():
-    nginx = (ROOT / "deploy" / "nginx" / "sitehits-mcp.locations.conf").read_text()
-
-    for marker in ("location = /mcp", "location ^~ /oauth/", "location ^~ /accounts/"):
-        block = nginx.split(marker, 1)[1].split("}", 1)[0]
-        assert "access_log off;" in block
-        assert "error_log /dev/null emerg;" in block
-
-
-def test_alert_webhook_validator_accepts_only_https_without_userinfo():
-    sender = ROOT / "deploy" / "send-mcp-alert.py"
-    accepted = subprocess.run(
-        [sys.executable, str(sender), "--check"],
-        env={**os.environ, "SITEHITS_MCP_ALERT_WEBHOOK_URL": "https://alerts.example/hook"},
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert accepted.returncode == 0, accepted.stderr
-    for invalid in ("", "http://alerts.example/hook", "https://user@alerts.example/hook"):
-        rejected = subprocess.run(
-            [sys.executable, str(sender), "--check"],
-            env={**os.environ, "SITEHITS_MCP_ALERT_WEBHOOK_URL": invalid},
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert rejected.returncode == 78
 
 
 def _client(name):

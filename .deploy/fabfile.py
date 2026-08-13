@@ -38,22 +38,6 @@ VENV_DIR = f"{PROJECT_DIR}/venv"
 REPO_URL = f"https://github.com/{GITHUB_REPO}.git"
 GEOIP_DB_PATH = "/var/lib/GeoIP/GeoLite2-City.mmdb"
 GEOIP_CONFIG_PATH = "/etc/GeoIP.conf"
-SYSTEMD_UNITS = (
-    "sitehits-mcp.service",
-    "sitehits-mcp-cleanup.service",
-    "sitehits-mcp-cleanup.timer",
-    "sitehits-mcp-cleanup-health.service",
-    "sitehits-mcp-cleanup-health.timer",
-    "sitehits-mcp-alert@.service",
-    "sitehits-archive-maintenance.service",
-    "sitehits-archive-maintenance.timer",
-    "sitehits-historical-cache.service",
-    "sitehits-historical-cache.timer",
-)
-NGINX_MCP_SNIPPET = "/etc/nginx/snippets/sitehits-mcp.locations.conf"
-NGINX_SITE = os.environ.get(
-    "NGINX_SITE", f"/etc/nginx/sites-available/{PROJECT_NAME}.conf"
-)
 RUNTIME_ENV_KEYS = (
     "DATABASE_URL",
     "ALLOWED_HOSTS",
@@ -183,85 +167,6 @@ def sync_runtime_env(connection: Connection) -> None:
         app_run(connection, f"rm -f {quote(Path(staged_path).name)}", warn=True)
 
 
-def install_duckdb_extensions(connection: Connection) -> None:
-    command = (
-        "import duckdb; "
-        "connection = duckdb.connect(); "
-        "[connection.install_extension(name) for name in ('httpfs', 'postgres')]; "
-        "connection.close()"
-    )
-    app_run(connection, f"{quote(VENV_DIR + '/bin/python')} -c {quote(command)}")
-
-
-def backup_database(connection: Connection, deployed_commit: str) -> str:
-    backup_directory = f"/srv/backups/{PROJECT_NAME}"
-    backup_path = f"{backup_directory}/predeploy-{deployed_commit}.dump"
-    connection.sudo(
-        f"install -d -o {quote(APP_USER)} -g {quote(APP_USER)} -m 700 "
-        f"{quote(backup_directory)}"
-    )
-    if connection.run(f"test -s {quote(backup_path)}", warn=True, hide=True).ok:
-        return backup_path
-    app_run(
-        connection,
-        f"set -a && . ./.env && set +a && "
-        f"python3 .deploy/backup_database.py {quote(backup_path)}",
-    )
-    connection.sudo(f"chmod 600 {quote(backup_path)}")
-    if connection.run(f"test -s {quote(backup_path)}", warn=True, hide=True).failed:
-        raise RuntimeError("The pre-deploy PostgreSQL backup was not created.")
-    return backup_path
-
-
-def install_native_services(connection: Connection) -> None:
-    for unit in SYSTEMD_UNITS:
-        source = f"{PROJECT_DIR}/deploy/systemd/{unit}"
-        destination = f"/etc/systemd/system/{unit}"
-        connection.sudo(f"install -o root -g root -m 644 {quote(source)} {quote(destination)}")
-    connection.sudo(
-        "install -o root -g root -m 644 "
-        f"{quote(PROJECT_DIR + '/deploy/nginx/sitehits-mcp.locations.conf')} "
-        f"{quote(NGINX_MCP_SNIPPET)}"
-    )
-    helper = f"{PROJECT_DIR}/scripts/install_sitehits_mcp_nginx.py"
-    connection.sudo(
-        f"python3 {quote(helper)} --site-config {quote(NGINX_SITE)} "
-        f"--include-path {quote(NGINX_MCP_SNIPPET)}"
-    )
-    connection.sudo("systemctl daemon-reload")
-    connection.sudo("nginx -t")
-    connection.sudo("systemctl reload nginx")
-    connection.sudo("systemctl disable --now sitehits-web.service", warn=True)
-    connection.sudo(
-        "systemctl enable sitehits-mcp.service "
-        "sitehits-mcp-cleanup.timer sitehits-mcp-cleanup-health.timer "
-        "sitehits-archive-maintenance.timer sitehits-historical-cache.timer"
-    )
-    connection.sudo("systemctl restart sitehits-mcp.service")
-    connection.sudo("systemctl start sitehits-mcp-cleanup.service")
-    connection.sudo("systemctl start sitehits-mcp-cleanup-health.service")
-    connection.sudo(
-        "systemctl restart sitehits-mcp-cleanup.timer "
-        "sitehits-mcp-cleanup-health.timer sitehits-archive-maintenance.timer "
-        "sitehits-historical-cache.timer"
-    )
-
-
-def verify_native_services(connection: Connection) -> None:
-    connection.sudo(
-        "systemctl is-active --quiet app@sitehits.socket sitehits-mcp.service "
-        "sitehits-mcp-cleanup.timer sitehits-mcp-cleanup-health.timer "
-        "sitehits-archive-maintenance.timer sitehits-historical-cache.timer"
-    )
-    status = connection.run(
-        "curl --silent --show-error --output /dev/null --write-out '%{http_code}' "
-        "-H 'Host: sitehits.io' http://127.0.0.1:8001/mcp",
-        hide=True,
-    ).stdout.strip()
-    if status != "401":
-        raise RuntimeError("The native MCP process did not return its OAuth challenge.")
-
-
 def ensure_geoip_database(connection: Connection) -> None:
     account_id = os.environ.get("MAXMIND_ACCOUNT_ID", "").strip()
     license_key = os.environ.get("MAXMIND_LICENSE_KEY", "").strip()
@@ -355,12 +260,9 @@ def deploy(_context):
 
     app_run(connection, f"{quote(VENV_DIR + '/bin/pip')} install --upgrade pip")
     app_run(connection, f"{quote(VENV_DIR + '/bin/pip')} install -r requirements.txt")
-    install_duckdb_extensions(connection)
     app_run(connection, "npm ci")
     app_run(connection, "npm run build")
     app_run(connection, f"{quote(VENV_DIR + '/bin/python')} manage.py collectstatic --noinput")
-    deployed_commit = app_run(connection, "git rev-parse HEAD").stdout.strip()
-    backup_database(connection, deployed_commit)
     app_run(connection, f"{quote(VENV_DIR + '/bin/python')} manage.py migrate --noinput")
     app_run(connection, f"{quote(VENV_DIR + '/bin/python')} manage.py check --deploy")
 
@@ -369,8 +271,6 @@ def deploy(_context):
         warn=True,
     )
     connection.sudo(f"systemctl restart app@{PROJECT_NAME}.socket", warn=True)
-    install_native_services(connection)
-    verify_native_services(connection)
 
 
 ns = Collection(deploy)

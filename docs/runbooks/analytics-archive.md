@@ -50,9 +50,9 @@ bucket, region, and KMS key when archiving is enabled. These invariants are chec
 - `SITEHITS_HISTORICAL_QUERY_CONCURRENCY=1`;
 - query and source-delete flags require archive export to be enabled.
 
-DuckDB's `httpfs`, `postgres`, and `sqlite` extensions are installed into the image at build time.
-Production workers do not download extensions at runtime. Every worker uses an in-memory
-DuckDB connection; no shared `.duckdb` file exists.
+Every worker uses an in-memory DuckDB connection; no shared `.duckdb` file exists. Required
+DuckDB extensions and the scheduling of archive commands are deployment handoff items. The
+analytics implementation does not alter the existing Fabric deployment contract.
 
 ## Rollout
 
@@ -65,8 +65,8 @@ sites and a hot/cold boundary.
 2. Verification: compare overview, timeseries, every breakdown, bot, and product reports against
    PostgreSQL raw data. Investigate every `failed` manifest; do not manually change it to
    `verified`.
-3. Historical reads: set `SITEHITS_ARCHIVE_QUERY_ENABLED=true`, run
-   `python manage.py refresh_historical_reports`, then enable the hourly cache timer.
+3. Historical reads: set `SITEHITS_ARCHIVE_QUERY_ENABLED=true`, then run
+   `python manage.py refresh_historical_reports` on the cadence chosen by operations.
 4. Source deletion: only after comparison is green, set
    `SITEHITS_ARCHIVE_DELETE_SOURCE=true`. The next daily maintenance run batch-deletes source rows
    for verified manifests.
@@ -75,18 +75,17 @@ Agent Contract 2.0.0 is sealed by the immutable `agent-contract-v2.0.0` annotate
 `SITEHITS_ALLOW_UNRELEASED_AGENT_CONTRACT=true` remains development-only; production verifies the
 materialized release descriptor and pinned digests at startup.
 
-## Scheduled operations
+## Operations handoff
 
-Install and enable:
+The application exposes these idempotent commands without installing a scheduler:
 
-- `deploy/systemd/sitehits-archive-maintenance.timer` daily. It compacts eligible months, retries
-  cold erasure jobs, rebuilds invalidated rollups from queryable Parquet after site timezone
-  changes, transitions third-year objects to Glacier, and removes expired manifests and every S3
-  version;
-- `deploy/systemd/sitehits-historical-cache.timer` hourly. It refreshes standard six-month and
-  one-year overview, timeseries, breakdown, bot, and product reports;
-- the existing cleanup timer daily. `purge_old_events` now cleans only audit and idempotency
-  metadata and never removes analytics or bot events.
+- `python manage.py maintain_event_archive --limit 12`
+- `python manage.py refresh_historical_reports`
+- `python manage.py purge_old_events`
+
+Cadence, process supervision and alert delivery remain part of the project's separately managed
+deployment/operations process. Agentic implementation does not add systemd units, timers or
+pre-migration backup behavior.
 
 Alert on nonzero compaction/transition failures, repeated `historical_data_unavailable`, cache age
 over one hour, a growing `failed` manifest count, and cold-deletion jobs that remain incomplete.

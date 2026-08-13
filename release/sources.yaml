@@ -20,7 +20,7 @@
       "runtime_artifact_ref_pattern": "git_commit:{git_commit}",
       "acceptance_evidence_store": "github_release_asset",
       "digest_algorithm": "sha256",
-      "consumer_resolution": "Resolve the MCP descriptor from the immutable GitHub Release; verify its digest, pinned Agent Contract descriptor and Contract digests, exact Git commit, source-tree digest, dependency-lock digest, checked-in native deploy-contract digest, canonical registry digest, client compatibility matrix digest, and immutable ChatGPT-plus-Codex-plus-Claude-plus-Claude-Code CIMD-and-DCR smoke evidence before promotion."
+      "consumer_resolution": "Resolve the MCP descriptor from the immutable GitHub Release; verify its digest, pinned Agent Contract descriptor and Contract digests, exact Git commit, source-tree digest, dependency-lock digest, canonical registry digest, client compatibility matrix digest, and immutable ChatGPT-plus-Codex-plus-Claude-plus-Claude-Code CIMD-and-DCR smoke evidence before promotion."
     },
     "standalone_skill": {
       "authoritative_store": "github_release_asset",
@@ -38,7 +38,7 @@
     }
   },
   "promotion_environments": [
-    {"name": "local", "promotes_to": "production", "requires": ["stage_specific_conformance", "native_deploy_contract", "digest_verification"]},
-    {"name": "production", "promotes_to": null, "requires": ["database_backup", "previous_native_release", "immutable_descriptor", "digest_verification", "release_approval"]}
+    {"name": "local", "promotes_to": "production", "requires": ["stage_specific_conformance", "digest_verification", "deployment_handoff"]},
+    {"name": "production", "promotes_to": null, "requires": ["separate_deployment_complete", "live_acceptance", "immutable_descriptor", "digest_verification", "release_approval"]}
   ]
 }

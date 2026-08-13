@@ -256,9 +256,9 @@ scripts/start.sh web
 scripts/start.sh mcp
 ```
 
-Only the web process may run migrations (`RUN_MIGRATIONS=true`, the default). Production systemd and
-Nginx examples are under `deploy/`; the complete rollout, cleanup, release, and rollback procedure is
-in `docs/runbooks/mcp-stage1.md`.
+Only the web process may run migrations (`RUN_MIGRATIONS=true`, the default). Runtime activation is
+handed to the project's existing deployment process; `docs/runbooks/mcp-stage1.md` records the
+process commands and public acceptance checks without changing that deployment contract.
 
 ### Passwordless and Google authentication
 
